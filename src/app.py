@@ -272,12 +272,12 @@ class Asset(BaseAsset):
 
 
 app = App(
-    name="MS Graph for Office 365",
+    name="Microsoft 365 V2",
     app_type="email",
     logo="logo_microsoftoffice365.svg",
     logo_dark="logo_microsoftoffice365_dark.svg",
     product_vendor="Microsoft",
-    product_name="Office 365 (MS Graph)",
+    product_name="Microsoft 365 (MS Graph)",
     publisher="Splunk",
     appid=APP_ID,
     fips_compliant=True,

@@ -1,12 +1,12 @@
-# MS Graph for Office 365
+# Microsoft 365 V2
 
 Publisher: Splunk <br>
-Connector Version: 4.1.0 <br>
+Connector Version: 1.0.0 <br>
 Product Vendor: Microsoft <br>
-Product Name: Office 365 (MS Graph) <br>
+Product Name: Microsoft 365 (MS Graph) <br>
 Minimum Product Version: 7.0.0
 
-This app enables MS Graph API-based email ingestion and investigative actions on Office 365
+This app enables MS Graph API-based email ingestion and investigative actions on Microsoft 365, replacing the Microsoft Graph for Office 365 app.
 
 ## Playbook Backward Compatibility
 
@@ -573,7 +573,7 @@ This section explains each configuration field in user-friendly terms.
 
 ### Configuration variables
 
-This table lists the configuration variables required to operate MS Graph for Office 365. These variables are specified when configuring a Office 365 (MS Graph) asset in Splunk SOAR.
+This table lists the configuration variables required to operate Microsoft 365 V2. These variables are specified when configuring a Microsoft 365 (MS Graph) asset in Splunk SOAR.
 
 VARIABLE | REQUIRED | TYPE | DESCRIPTION
 -------- | -------- | ---- | -----------
