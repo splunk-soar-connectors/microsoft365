@@ -8,23 +8,13 @@ Minimum Product Version: 7.0.0
 
 This app enables MS Graph API-based email ingestion and investigative actions on Microsoft 365, replacing the Microsoft Graph for Office 365 app.
 
-## Playbook Backward Compatibility
-
-- With version 3.0.0 of the connector, the 'group_id' parameter of the 'list group members' action has been removed and two new parameters are added in the same action as follows:
-
-  - **method** - Method(Group ID or Group e-mail) using which you want to list group members, by default it is **Group ID**.
-  - **identificator** - Value of group id or group e-mail based on the **method** selected.
-
-  Hence, it is requested to please update the existing playbooks by re-inserting
-  | modifying | deleting the corresponding action blocks to ensure the correct functioning of the
-  playbooks created on the earlier versions of the app.
-
-- The 'id' field of email artifact has been renamed to 'messageId'. Hence, it is requested to the
-  end-user to please update their existing playbooks by re-inserting | modifying | deleting the
-  corresponding action blocks to ensure the correct functioning of the playbooks created on the
-  earlier versions of the app.
-
 ## Prerequisites
+
+### SOAR Webhooks
+
+To configure this connector, the Webhooks feature must be enabled on your Splunk SOAR deployment. You can enable this feature in the Administration settings.
+
+The port used for webhooks (default 3500/tcp) must be open to all IPs.
 
 ### Azure AD Admin Role Requirements
 
