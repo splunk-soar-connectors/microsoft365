@@ -5,6 +5,9 @@
 To configure this connector, the Webhooks feature must be enabled on your Splunk SOAR deployment. You can enable this feature in the Administration settings.
 
 The port used for webhooks (default 3500/tcp) must be open to all IPs.
+For commercial SOAR Cloud stacks, this is the default.
+For FedRAMP stacks, contact support to open the port.
+For on-prem customers, this is managed by your own firewall.
 
 ### Azure AD Admin Role Requirements
 

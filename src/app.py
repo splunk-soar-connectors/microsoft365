@@ -261,7 +261,7 @@ class Asset(BaseAsset):
     ingest_manner: str = AssetField(
         required=False,
         description="How to Ingest",
-        default="oldest first",
+        default="latest first",
         value_list=["oldest first", "latest first"],
     )
     extract_eml: bool = AssetField(
