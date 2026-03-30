@@ -139,7 +139,7 @@ To successfully run Test Connectivity, you need at least one of these permission
 1. **Create Asset in SOAR**
 
    - Navigate to your SOAR instance
-   - Create new asset for "MS Graph for Office 365"
+   - Create new asset for "Microsoft 365"
    - Fill in the following required fields:
      - **Tenant**: Directory (tenant) ID from Step 1
      - **Application ID**: Application (client) ID from Step 1
@@ -166,10 +166,14 @@ To successfully run Test Connectivity, you need at least one of these permission
 
 1. **Configure Redirect URL**
 
-   - Save the asset to generate the POST URL
-   - Copy the URL from **POST incoming for MS Graph for Office 365 to this location**
-   - Add `/result` to the end of this URL
-   - Example: `https://<splunk_soar_host>/rest/handler/msgraphforoffice365_0a0a4087-10e8-4c96-9872-b740ff26d8bb/<asset_name>/result`
+   - Save the asset to generate its initial webhook settings.
+   - Scroll down to the **Webhook Settings**, and ensure the following are set. If making any updates, save the asset again.
+     - **Enable webhooks for this asset**: checked
+     - **Webhooks require SOAR authentication**: unchecked
+     - **Allow requests from these IPs**: All IPv4 and IPv6 addresses (`0.0.0.0/0` and `::/0`)
+     - **Pass these headers to the webhook handler**: empty
+   - Copy the **Route URL** from the webhook settings, which ends with `/result`
+     - Example: `https://<splunk_soar_host>:3500/webhook/microsoft365_cdcb0c71-162d-4fd5-8098-d6d93f36e90d/<asset_id>/result`
    - Go back to Azure Portal → App registrations → Authentication
    - Click **Add a platform** → **Web**
    - Add this complete URL as a redirect URI
