@@ -553,7 +553,7 @@ wheels = [
 ]
 
 [[package]]
-name = "microsoft365-v2"
+name = "microsoft365"
 version = "1.0.0"
 source = { virtual = "." }
 dependencies = [

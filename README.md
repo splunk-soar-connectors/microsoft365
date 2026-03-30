@@ -1,4 +1,4 @@
-# Microsoft 365 V2
+# Microsoft 365
 
 Publisher: Splunk <br>
 Connector Version: 1.0.0 <br>
@@ -566,7 +566,7 @@ This section explains each configuration field in user-friendly terms.
 
 ### Configuration variables
 
-This table lists the configuration variables required to operate Microsoft 365 V2. These variables are specified when configuring a Microsoft 365 (MS Graph) asset in Splunk SOAR.
+This table lists the configuration variables required to operate Microsoft 365. These variables are specified when configuring a Microsoft 365 (MS Graph) asset in Splunk SOAR.
 
 VARIABLE | REQUIRED | TYPE | DESCRIPTION
 -------- | -------- | ---- | -----------

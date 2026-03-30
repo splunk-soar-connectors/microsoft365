@@ -1,5 +1,5 @@
 [project]
-name = "microsoft365_v2"
+name = "microsoft365"
 version = "1.0.0"
 description = "This app enables MS Graph API-based email ingestion and investigative actions on Microsoft 365, replacing the Microsoft Graph for Office 365 app."
 license = "Copyright (c) 2017-2026 Splunk Inc."

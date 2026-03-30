@@ -63,7 +63,7 @@ from .helper import MsGraphHelper
 logger = getLogger()
 
 APP_ID = "cdcb0c71-162d-4fd5-8098-d6d93f36e90d"
-APP_NAME = "Microsoft 365 V2"
+APP_NAME = "Microsoft 365"
 
 ADMIN_CONSENT_STATE_KEY = "admin_consent_granted"
 
@@ -220,7 +220,7 @@ class Asset(BaseAsset):
     max_containers: int = AssetField(
         required=False,
         description="Maximum emails for scheduled polling",
-        default=100,
+        default=50,
     )
     extract_attachments: bool = AssetField(
         required=False,
@@ -272,7 +272,7 @@ class Asset(BaseAsset):
 
 
 app = App(
-    name="Microsoft 365 V2",
+    name=APP_NAME,
     app_type="email",
     logo="logo_microsoftoffice365.svg",
     logo_dark="logo_microsoftoffice365_dark.svg",
