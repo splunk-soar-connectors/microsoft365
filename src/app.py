@@ -268,6 +268,7 @@ class Asset(BaseAsset):
         required=False,
         description="Extract root (primary) email as Vault",
         default=False,
+        category=FieldCategory.INGEST,
     )
 
 
@@ -880,8 +881,7 @@ def on_es_poll(
                                     is_raw_email=True,
                                 )
                             ]
-                            if asset.extract_eml:
-                                attachments.extend(outer_attachments)
+                            attachments.extend(outer_attachments)
 
                             original_sender = (
                                 _extract_address(parsed.headers.from_address) or ""
