@@ -1,20 +1,6 @@
-# Starter connector gitignore
-
-# IDE folders
-.vscode/
-.idea/
-.DS_Store
-
-# Dependencies
-node_modules/
 __pycache__/
-*.py[cod]
-venv/
-env/
-
-# Build output
+*.pyc
+*.egg-info/
+.venv/
 dist/
-build/
-
-# Secrets
-.env
+*.tgz

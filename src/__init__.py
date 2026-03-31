@@ -1,6 +1,4 @@
-# File: microsoft365_v2_consts.py
-#
-# Copyright (c) 2025 Splunk Inc.
+# Copyright (c) 2017-2026 Splunk Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,11 +11,7 @@
 # either express or implied. See the License for the specific language governing permissions
 # and limitations under the License.
 
-# API endpoints
-MICROSOFT365_V2_CONNECTIVITY_ENDPOINT = "/endpoint/to/test/connectivity"
-
-# Error messages
-MICROSOFT365_V2_ERR_CONNECTIVITY_TEST = "Test Connectivity Failed"
-
-# Success messages
-MICROSOFT365_V2_SUCC_CONNECTIVITY_TEST = "Test Connectivity Passed"
+from . import (
+    actions,
+    app,
+)
