@@ -1,2 +1,1 @@
 **Unreleased**
-* Upgrade splunk-soar-sdk to 3.20.1, to ensure the NOTICE, LICENSE, and README end up in the built package
