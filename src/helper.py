@@ -16,6 +16,7 @@ import time
 
 import requests
 from soar_sdk.abstract import SOARClient
+from soar_sdk.exceptions import ActionFailure
 from soar_sdk.logging import getLogger
 
 from .consts import (
@@ -69,7 +70,7 @@ class MsGraphHelper:
             )
         except ValueError as e:
             if "private_key" in str(e).lower():
-                raise Exception(MSGOFFICE365_CBA_KEY_ERROR) from None
+                raise ActionFailure(MSGOFFICE365_CBA_KEY_ERROR) from None
             raise
 
         res_json = app_client.acquire_token_for_client(
@@ -77,7 +78,7 @@ class MsGraphHelper:
         )
         if error := res_json.get("error"):
             error_message = f"{error}: {res_json.get('error_description')}"
-            raise Exception(error_message)
+            raise ActionFailure(error_message)
         return res_json
 
     def _generate_oauth_access_token(self):
@@ -177,7 +178,7 @@ class MsGraphHelper:
         if download:
             if 200 <= resp.status_code < 399:
                 return resp.text
-            raise Exception(f"Error downloading: {resp.status_code}")
+            raise ActionFailure(f"Error downloading: {resp.status_code}")
 
         if resp.status_code == 204:
             return {}
@@ -185,7 +186,7 @@ class MsGraphHelper:
         if not resp.text:
             if 200 <= resp.status_code < 399:
                 return {}
-            raise Exception(f"Empty response with status {resp.status_code}")
+            raise ActionFailure(f"Empty response with status {resp.status_code}")
 
         if "json" in resp.headers.get("Content-Type", ""):
             resp_json = resp.json()
@@ -197,10 +198,10 @@ class MsGraphHelper:
                 if isinstance(error, dict)
                 else str(error)
             )
-            raise Exception(f"API Error {resp.status_code}: {error_msg}")
+            raise ActionFailure(f"API Error {resp.status_code}: {error_msg}")
 
         if resp.status_code >= 400:
-            raise Exception(f"Error {resp.status_code}: {resp.text[:500]}")
+            raise ActionFailure(f"Error {resp.status_code}: {resp.text[:500]}")
         return {}
 
     def make_rest_call_helper(
@@ -223,7 +224,7 @@ class MsGraphHelper:
             return self._make_rest_call(
                 url, method=method, params=params, data=data, download=download
             )
-        except Exception as e:
+        except ActionFailure as e:
             error_msg = str(e)
             if any(msg in error_msg for msg in MSGOFFICE365_AUTH_FAILURE_MSG):
                 logger.info("Token expired, refreshing...")
@@ -235,9 +236,12 @@ class MsGraphHelper:
                 state.pop(auth_key, None)
                 self._save_auth_state(state)
                 self.get_token()
-                return self._make_rest_call(
-                    url, method=method, params=params, data=data, download=download
-                )
+                try:
+                    return self._make_rest_call(
+                        url, method=method, params=params, data=data, download=download
+                    )
+                except ActionFailure as refresh_error:
+                    raise ActionFailure(str(refresh_error)) from None
             raise
 
     def get_folder_id(self, folder_name: str, email_address: str) -> str | None:

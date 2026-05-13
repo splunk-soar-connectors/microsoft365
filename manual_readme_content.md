@@ -124,6 +124,7 @@ To successfully run Test Connectivity, you need at least one of these permission
 **Mailbox Settings**
 
 - `MailboxSettings.Read` - Out-of-office status, mail rules
+- `MailboxSettings.ReadWrite` - Modify mail rules
 
 #### **Add Permissions in Azure AD**
 
@@ -302,6 +303,8 @@ Test Connectivity needs at least one of these permissions:
 | oof check | `MailboxSettings.Read` | `MailboxSettings.Read` | Out-of-office status |
 | get rule | `MailboxSettings.Read` | `MailboxSettings.Read` | Mail rules |
 | list rules | `MailboxSettings.Read` | `MailboxSettings.Read` | Mail rules |
+| disable rule | `MailboxSettings.ReadWrite` | `MailboxSettings.ReadWrite` | Modify mail rules |
+| delete rule | `MailboxSettings.ReadWrite` | `MailboxSettings.ReadWrite` | Modify mail rules |
 | **Polling** | | | |
 | on poll | `Mail.ReadBasic` | `Mail.Read` | ReadBasic for basic polling |
 
