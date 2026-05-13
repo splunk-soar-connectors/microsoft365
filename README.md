@@ -280,6 +280,11 @@ Test Connectivity needs at least one of these permissions:
 - **Basic**: `User.Read.All` + `Group.Read.All`
 - **Advanced**: Add `GroupMember.Read.All` for detailed group operations
 
+#### **Mail Rule Management Set**
+
+- **Read-only rule access**: `MailboxSettings.Read`
+- **Rule management**: `MailboxSettings.ReadWrite` for `disable rule` and `delete rule`
+
 ### Detailed Action Permissions Table
 
 | Action | Minimum Required (Del) | Full Functionality (App) | Notes |

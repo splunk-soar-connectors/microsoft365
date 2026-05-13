@@ -6,6 +6,7 @@ from soar_sdk.abstract import SOARClient
 from soar_sdk.action_results import ActionOutput
 from soar_sdk.params import Param, Params
 
+
 if TYPE_CHECKING:
     from ..app import Asset
 from ..app import app
@@ -38,7 +39,9 @@ def disable_rule(
     helper = MsGraphHelper(soar, asset)
     helper.get_token()
 
-    endpoint = f"/users/{params.user_id}/mailFolders/inbox/messageRules/{params.rule_id}"
+    endpoint = (
+        f"/users/{params.user_id}/mailFolders/inbox/messageRules/{params.rule_id}"
+    )
     helper.make_rest_call_helper(
         endpoint, method="patch", data=json.dumps({"isEnabled": False})
     )
