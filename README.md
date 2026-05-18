@@ -134,6 +134,7 @@ To successfully run Test Connectivity, you need at least one of these permission
 **Mailbox Settings**
 
 - `MailboxSettings.Read` - Out-of-office status, mail rules
+- `MailboxSettings.ReadWrite` - Modify mail rules
 
 #### **Add Permissions in Azure AD**
 
@@ -279,6 +280,11 @@ Test Connectivity needs at least one of these permissions:
 - **Basic**: `User.Read.All` + `Group.Read.All`
 - **Advanced**: Add `GroupMember.Read.All` for detailed group operations
 
+#### **Mail Rule Management Set**
+
+- **Read-only rule access**: `MailboxSettings.Read`
+- **Rule management**: `MailboxSettings.ReadWrite` for `disable rule` and `delete rule`
+
 ### Detailed Action Permissions Table
 
 | Action | Minimum Required (Del) | Full Functionality (App) | Notes |
@@ -312,6 +318,8 @@ Test Connectivity needs at least one of these permissions:
 | oof check | `MailboxSettings.Read` | `MailboxSettings.Read` | Out-of-office status |
 | get rule | `MailboxSettings.Read` | `MailboxSettings.Read` | Mail rules |
 | list rules | `MailboxSettings.Read` | `MailboxSettings.Read` | Mail rules |
+| disable rule | `MailboxSettings.ReadWrite` | `MailboxSettings.ReadWrite` | Modify mail rules |
+| delete rule | `MailboxSettings.ReadWrite` | `MailboxSettings.ReadWrite` | Modify mail rules |
 | **Polling** | | | |
 | on poll | `Mail.ReadBasic` | `Mail.Read` | ReadBasic for basic polling |
 
@@ -628,7 +636,9 @@ VARIABLE | REQUIRED | TYPE | DESCRIPTION
 [list rules](#action-list-rules) - Get all the messageRule objects defined for the user's inbox <br>
 [resolve name](#action-resolve-name) - Resolve a name to email addresses <br>
 [run query](#action-run-query) - Search emails in a mailbox <br>
-[block sender](#action-block-sender) - Add a sender to the blocked senders list
+[block sender](#action-block-sender) - Add a sender to the blocked senders list <br>
+[delete rule](#action-delete-rule) - Delete inbox rule by ID <br>
+[disable rule](#action-disable-rule) - Disable inbox rule by ID
 
 ## action: 'test connectivity'
 
@@ -1520,6 +1530,56 @@ action_result.message | string | | |
 action_result.parameter.email_address | string | `email` | |
 action_result.parameter.sender | string | `email` | |
 action_result.data.\*.message | string | | |
+summary.total_objects | numeric | | 1 |
+summary.total_objects_successful | numeric | | 1 |
+
+## action: 'delete rule'
+
+Delete inbox rule by ID
+
+Type: **contain** <br>
+Read only: **True**
+
+#### Action Parameters
+
+PARAMETER | REQUIRED | DESCRIPTION | TYPE | CONTAINS
+--------- | -------- | ----------- | ---- | --------
+**user_id** | required | User ID/Principal name | string | `msgoffice365 user id` `msgoffice365 user principal name` `email` |
+**rule_id** | required | Inbox rule ID | string | `msgoffice365 rule id` |
+
+#### Action Output
+
+DATA PATH | TYPE | CONTAINS | EXAMPLE VALUES
+--------- | ---- | -------- | --------------
+action_result.status | string | | success failure |
+action_result.message | string | | |
+action_result.parameter.user_id | string | `msgoffice365 user id` `msgoffice365 user principal name` `email` | |
+action_result.parameter.rule_id | string | `msgoffice365 rule id` | |
+summary.total_objects | numeric | | 1 |
+summary.total_objects_successful | numeric | | 1 |
+
+## action: 'disable rule'
+
+Disable inbox rule by ID
+
+Type: **contain** <br>
+Read only: **True**
+
+#### Action Parameters
+
+PARAMETER | REQUIRED | DESCRIPTION | TYPE | CONTAINS
+--------- | -------- | ----------- | ---- | --------
+**user_id** | required | User ID/Principal name | string | `msgoffice365 user id` `msgoffice365 user principal name` `email` |
+**rule_id** | required | Inbox rule ID | string | `msgoffice365 rule id` |
+
+#### Action Output
+
+DATA PATH | TYPE | CONTAINS | EXAMPLE VALUES
+--------- | ---- | -------- | --------------
+action_result.status | string | | success failure |
+action_result.message | string | | |
+action_result.parameter.user_id | string | `msgoffice365 user id` `msgoffice365 user principal name` `email` | |
+action_result.parameter.rule_id | string | `msgoffice365 rule id` | |
 summary.total_objects | numeric | | 1 |
 summary.total_objects_successful | numeric | | 1 |
 

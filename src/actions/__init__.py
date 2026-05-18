@@ -17,6 +17,8 @@ from . import (
     create_folder,
     delete_email,
     delete_event,
+    delete_rule,
+    disable_rule,
     generate_token,
     get_email,
     get_email_properties,
