@@ -1,15 +1,11 @@
 # Copyright (c) 2017-2026 Splunk Inc.
 import json
-from typing import TYPE_CHECKING
 
 from soar_sdk.abstract import SOARClient
 from soar_sdk.action_results import ActionOutput
 from soar_sdk.params import Param, Params
 
-
-if TYPE_CHECKING:
-    from ..app import Asset
-from ..app import app
+from ..app import Asset, app
 from ..helper import MsGraphHelper
 
 
@@ -34,7 +30,7 @@ class DisableRuleOutput(ActionOutput):
 
 @app.action(description="Disable inbox rule by ID", action_type="contain")
 def disable_rule(
-    params: DisableRuleParams, soar: SOARClient, asset: "Asset"
+    params: DisableRuleParams, soar: SOARClient, asset: Asset
 ) -> DisableRuleOutput:
     helper = MsGraphHelper(soar, asset)
     helper.get_token()

@@ -1,14 +1,9 @@
 # Copyright (c) 2017-2026 Splunk Inc.
-from typing import TYPE_CHECKING
-
 from soar_sdk.abstract import SOARClient
 from soar_sdk.action_results import ActionOutput
 from soar_sdk.params import Param, Params
 
-
-if TYPE_CHECKING:
-    from ..app import Asset
-from ..app import app
+from ..app import Asset, app
 from ..helper import MsGraphHelper
 
 
@@ -33,7 +28,7 @@ class DeleteRuleOutput(ActionOutput):
 
 @app.action(description="Delete inbox rule by ID", action_type="contain")
 def delete_rule(
-    params: DeleteRuleParams, soar: SOARClient, asset: "Asset"
+    params: DeleteRuleParams, soar: SOARClient, asset: Asset
 ) -> DeleteRuleOutput:
     helper = MsGraphHelper(soar, asset)
     helper.get_token()
