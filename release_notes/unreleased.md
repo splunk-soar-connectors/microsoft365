@@ -1,3 +1,1 @@
 **Unreleased**
-
-* Added `delete rule` and `disable rule` inbox rule actions
