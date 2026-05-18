@@ -1,6 +1,6 @@
 [project]
 name = "microsoft365"
-version = "1.0.0"
+version = "1.0.1"
 description = "This app enables MS Graph API-based email ingestion and investigative actions on Microsoft 365, replacing the Microsoft Graph for Office 365 app."
 license = "Copyright (c) 2017-2026 Splunk Inc."
 requires-python = ">=3.13, <3.15"
