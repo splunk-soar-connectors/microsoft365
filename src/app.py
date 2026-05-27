@@ -965,6 +965,7 @@ from .actions import (  # noqa: F401
     list_group_members,
     list_groups,
     list_users,
+    make_request,
     move_email,
     oof_check,
     report_message,
