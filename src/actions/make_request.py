@@ -65,7 +65,9 @@ def http_action(
     helper = MsGraphHelper(soar, asset)
     helper.get_token()
 
-    endpoint = params.endpoint if params.endpoint.startswith("/") else f"/{params.endpoint}"
+    endpoint = (
+        params.endpoint if params.endpoint.startswith("/") else f"/{params.endpoint}"
+    )
     url = f"{MSGRAPH_API_URL}{endpoint}"
 
     headers: dict = {
