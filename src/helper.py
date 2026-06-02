@@ -276,6 +276,6 @@ def serialize_complex_fields(resp: dict, fields: list[str]) -> dict:
     """Serialize complex fields (dict/list) to JSON strings for ActionOutput."""
     for field in fields:
         if field in resp and resp[field] is not None:
-            if isinstance(resp[field], (dict, list)):
+            if isinstance(resp[field], dict | list):
                 resp[field] = json.dumps(resp[field])
     return resp

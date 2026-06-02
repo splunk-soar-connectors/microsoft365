@@ -31,6 +31,7 @@ from . import (
     list_groups,
     list_rules,
     list_users,
+    make_request,
     move_email,
     oof_check,
     report_message,

@@ -624,6 +624,7 @@ VARIABLE | REQUIRED | TYPE | DESCRIPTION
 [list group members](#action-list-group-members) - Get group members <br>
 [list groups](#action-list-groups) - List all the groups in an organization, including but not limited to Office 365 groups <br>
 [list users](#action-list-users) - Retrieve a list of users <br>
+[make request](#action-make-request) - make request <br>
 [move email](#action-move-email) - Move an email to a folder <br>
 [oof check](#action-oof-check) - Get user's out of office status <br>
 [report message](#action-report-message) - Add the sender email into the report <br>
@@ -1088,6 +1089,45 @@ action_result.data.\*.jobTitle | string | | |
 action_result.data.\*.mobilePhone | string | | |
 action_result.data.\*.officeLocation | string | | |
 action_result.data.\*.businessPhones.\* | string | | |
+summary.total_objects | numeric | | 1 |
+summary.total_objects_successful | numeric | | 1 |
+
+## action: 'make request'
+
+make request
+
+Type: **generic** <br>
+Read only: **False**
+
+'make request' action for the app. Used to handle arbitrary HTTP requests with the app's asset
+
+#### Action Parameters
+
+PARAMETER | REQUIRED | DESCRIPTION | TYPE | CONTAINS
+--------- | -------- | ----------- | ---- | --------
+**http_method** | required | The HTTP method to use for the request. | string | |
+**endpoint** | required | MS Graph endpoint to call, appended to the API base URL. Example: '/v1.0/me/messages' or '/beta/users/{id}/mailFolders' | string | |
+**headers** | optional | The headers to send with the request (JSON object). An example is {'Content-Type': 'application/json'} | string | |
+**query_parameters** | optional | Parameters to append to the URL (JSON object or query string). An example is ?key=value&key2=value2 | string | |
+**body** | optional | The body to send with the request (JSON object). An example is {'key': 'value', 'key2': 'value2'} | string | |
+**timeout** | optional | The timeout for the request in seconds. | numeric | |
+**verify_ssl** | optional | Whether to verify the SSL certificate. | boolean | |
+
+#### Action Output
+
+DATA PATH | TYPE | CONTAINS | EXAMPLE VALUES
+--------- | ---- | -------- | --------------
+action_result.status | string | | success failure |
+action_result.message | string | | |
+action_result.parameter.http_method | string | | |
+action_result.parameter.endpoint | string | | |
+action_result.parameter.headers | string | | |
+action_result.parameter.query_parameters | string | | |
+action_result.parameter.body | string | | |
+action_result.parameter.timeout | numeric | | |
+action_result.parameter.verify_ssl | boolean | | |
+action_result.data.\*.status_code | numeric | | 200 |
+action_result.data.\*.response_body | string | | {"value": []} |
 summary.total_objects | numeric | | 1 |
 summary.total_objects_successful | numeric | | 1 |
 
