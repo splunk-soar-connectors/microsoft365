@@ -1197,7 +1197,7 @@ summary.total_objects_successful | numeric | | 1 |
 Add the sender email into the report
 
 Type: **contain** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -1263,7 +1263,7 @@ summary.total_objects_successful | numeric | | 1 |
 Remove a sender from the blocked senders list
 
 Type: **correct** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -1552,7 +1552,7 @@ summary.total_objects_successful | numeric | | 1 |
 Add a sender to the blocked senders list
 
 Type: **contain** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
