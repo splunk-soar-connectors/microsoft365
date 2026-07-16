@@ -68,6 +68,19 @@ APP_NAME = "Microsoft 365"
 ADMIN_CONSENT_STATE_KEY = "admin_consent_granted"
 
 
+def _poll_orderby(
+    *, is_manual_poll: bool, is_first_run: bool, ingest_manner: str
+) -> str:
+    """Use oldest-first checkpoints after initial ingestion so capped polls cannot skip mail."""
+    if not is_manual_poll and not is_first_run:
+        return "receivedDateTime asc"
+    return (
+        MSGOFFICE365_ORDERBY_RECEIVED_DESC
+        if ingest_manner == "latest first"
+        else "receivedDateTime asc"
+    )
+
+
 def _extract_urls_domains(
     body: str, extract_urls: bool, extract_domains: bool
 ) -> tuple[set[str], set[str]]:
@@ -452,12 +465,12 @@ def on_poll(
         if resolved_id:
             folder_id = resolved_id
 
-    is_poll_now = params.container_count is not None
+    is_first_run = state.get("first_run", True)
+    is_poll_now = params.is_manual_poll()
     if is_poll_now:
         max_emails = params.container_count if params.container_count > 0 else 100
         last_time = None
     else:
-        is_first_run = state.get("first_run", True)
         max_emails = (
             asset.first_run_max_emails if is_first_run else asset.max_containers
         )
@@ -468,9 +481,11 @@ def on_poll(
     api_params = {
         "$select": select_fields,
         "$top": str(min(max_emails, MSGOFFICE365_PER_PAGE_COUNT)),
-        "$orderby": MSGOFFICE365_ORDERBY_RECEIVED_DESC
-        if asset.ingest_manner == "latest first"
-        else "receivedDateTime asc",
+        "$orderby": _poll_orderby(
+            is_manual_poll=is_poll_now,
+            is_first_run=is_first_run,
+            ingest_manner=asset.ingest_manner,
+        ),
     }
 
     if last_time and not is_poll_now:
@@ -478,9 +493,14 @@ def on_poll(
 
     emails_processed = 0
     latest_time = last_time
+    next_link = None
 
     while emails_processed < max_emails:
-        resp = helper.make_rest_call_helper(endpoint, params=api_params)
+        resp = helper.make_rest_call_helper(
+            endpoint,
+            params=api_params if next_link is None else None,
+            nextLink=next_link,
+        )
         emails = resp.get("value", [])
 
         if not emails:
@@ -703,7 +723,6 @@ def on_poll(
         if not next_link or emails_processed >= max_emails:
             break
         api_params = None
-        resp = helper.make_rest_call_helper(endpoint, nextLink=next_link)
 
     if not is_poll_now and latest_time:
         state["last_time"] = latest_time
@@ -805,9 +824,11 @@ def on_es_poll(
     api_params = {
         "$select": select_fields,
         "$top": str(min(max_emails, MSGOFFICE365_PER_PAGE_COUNT)),
-        "$orderby": MSGOFFICE365_ORDERBY_RECEIVED_DESC
-        if asset.ingest_manner == "latest first"
-        else "receivedDateTime asc",
+        "$orderby": _poll_orderby(
+            is_manual_poll=False,
+            is_first_run=last_time is None,
+            ingest_manner=asset.ingest_manner,
+        ),
     }
 
     if last_time:
@@ -816,9 +837,14 @@ def on_es_poll(
     emails_processed = 0
     latest_time = last_time
     new_boundary_ids: set[str] = set()
+    next_link = None
 
     while emails_processed < max_emails:
-        resp = helper.make_rest_call_helper(endpoint, params=api_params)
+        resp = helper.make_rest_call_helper(
+            endpoint,
+            params=api_params if next_link is None else None,
+            nextLink=next_link,
+        )
         emails = resp.get("value", [])
 
         if not emails:
@@ -976,7 +1002,6 @@ def on_es_poll(
         if not next_link or emails_processed >= max_emails:
             break
         api_params = None
-        helper.make_rest_call_helper(endpoint, nextLink=next_link)
 
     logger.info(f"Processed {emails_processed} emails for ES findings")
 
