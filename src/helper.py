@@ -13,6 +13,7 @@
 
 import json
 import time
+from urllib.parse import urlsplit
 
 import requests
 from soar_sdk.abstract import SOARClient
@@ -34,6 +35,23 @@ from .consts import (
 
 
 logger = getLogger()
+
+
+def validate_graph_next_link(next_link: str) -> str:
+    """Reject pagination links that would carry the asset token off Microsoft Graph."""
+    parsed = urlsplit(next_link)
+    trusted = urlsplit(MSGRAPH_API_URL)
+    if (
+        parsed.scheme.casefold() != trusted.scheme.casefold()
+        or (parsed.hostname or "").casefold() != (trusted.hostname or "").casefold()
+        or parsed.port != trusted.port
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+        or not parsed.path.startswith(("/v1.0/", "/beta/"))
+    ):
+        raise ActionFailure("Microsoft Graph returned an untrusted pagination URL")
+    return next_link
 
 
 class MsGraphHelper:
@@ -215,7 +233,7 @@ class MsGraphHelper:
         beta=False,
     ):
         if nextLink:
-            url = nextLink
+            url = validate_graph_next_link(nextLink)
         else:
             api_version = "beta" if beta else "v1.0"
             url = f"{MSGRAPH_API_URL}/{api_version}{endpoint}"
