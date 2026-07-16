@@ -741,9 +741,13 @@ def _extract_inner_email(
         if not (lower_name.endswith(".eml") or lower_name.endswith(".msg")):
             continue
 
-        inner_parsed = extract_email_data(
-            att.content, email_id, include_attachment_content=True
-        )
+        try:
+            inner_parsed = extract_email_data(
+                att.content, email_id, include_attachment_content=True
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to parse attached email {att.filename}: {exc}")
+            continue
 
         outer_headers = outer_parsed.headers
         body_text = outer_parsed.body.plain_text or outer_parsed.body.html or ""
@@ -761,6 +765,15 @@ def _extract_inner_email(
         return inner_parsed, reporter
 
     return None
+
+
+def _merge_email_urls(inner_urls: list[str], outer_urls: list[str]) -> list[str]:
+    """Preserve ordered URL evidence from both a reported email and its wrapper."""
+    return list(dict.fromkeys([*inner_urls, *outer_urls]))
+
+
+def _is_embedded_email_attachment(filename: str) -> bool:
+    return filename.lower().endswith((".eml", ".msg"))
 
 
 @app.on_es_poll()
@@ -868,7 +881,8 @@ def on_es_poll(
                         )
 
                         reporter = None
-                        inner = _extract_inner_email(parsed, email_id)
+                        outer_parsed = parsed
+                        inner = _extract_inner_email(outer_parsed, email_id)
                         if inner is not None:
                             parsed, reporter = inner
                             outer_attachments = attachments
@@ -911,7 +925,12 @@ def on_es_poll(
                         finding_email = FindingEmail(
                             headers=email_headers or None,
                             body=body_text or None,
-                            urls=parsed.urls or None,
+                            urls=(
+                                _merge_email_urls(parsed.urls, outer_parsed.urls)
+                                if reporter
+                                else parsed.urls
+                            )
+                            or None,
                             reporter=reporter,
                         )
                         for att in parsed.attachments:
@@ -923,6 +942,18 @@ def on_es_poll(
                                         is_raw_email=False,
                                     )
                                 )
+                        if reporter:
+                            for att in outer_parsed.attachments:
+                                if att.content and not _is_embedded_email_attachment(
+                                    att.filename
+                                ):
+                                    attachments.append(
+                                        FindingAttachment(
+                                            file_name=att.filename,
+                                            data=att.content,
+                                            is_raw_email=False,
+                                        )
+                                    )
                     except Exception as e:
                         logger.warning(f"Failed to parse email content: {e}")
             except Exception as e:
