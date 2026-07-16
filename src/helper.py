@@ -38,6 +38,16 @@ from .consts import (
 logger = getLogger()
 
 
+def escape_odata_string(value: str) -> str:
+    """Escape a value embedded inside an OData single-quoted string literal."""
+    return value.replace("'", "''")
+
+
+def quote_graph_search_phrase(value: str) -> str:
+    """Quote a caller value as one Microsoft Graph search phrase."""
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def validate_graph_next_link(next_link: str) -> str:
     """Reject pagination links that would carry the asset token off Microsoft Graph."""
     parsed = urlsplit(next_link)
@@ -300,7 +310,7 @@ class MsGraphHelper:
             else:
                 endpoint = f"/users/{email_address}/mailFolders"
 
-            params = {"$filter": f"displayName eq '{folder}'"}
+            params = {"$filter": f"displayName eq '{escape_odata_string(folder)}'"}
             resp = self.make_rest_call_helper(endpoint, params=params)
             value = resp.get("value", [])
             if not value:

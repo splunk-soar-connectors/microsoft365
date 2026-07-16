@@ -3,7 +3,12 @@
 import pytest
 from soar_sdk.exceptions import ActionFailure
 
-from src.helper import validate_graph_next_link, validate_graph_page_count
+from src.helper import (
+    escape_odata_string,
+    quote_graph_search_phrase,
+    validate_graph_next_link,
+    validate_graph_page_count,
+)
 
 
 def test_validate_graph_next_link_accepts_graph_pagination_url():
@@ -31,3 +36,15 @@ def test_validate_graph_page_count_rejects_page_after_safety_limit():
 
     with pytest.raises(ActionFailure, match="1000-page safety limit"):
         validate_graph_page_count(1001)
+
+
+def test_escape_odata_string_keeps_value_inside_literal():
+    assert escape_odata_string("report' or isRead eq false or subject eq '") == (
+        "report'' or isRead eq false or subject eq ''"
+    )
+
+
+def test_quote_graph_search_phrase_escapes_quotes_and_backslashes():
+    assert quote_graph_search_phrase('invoice\\" OR subject:"password') == (
+        '"invoice\\\\\\" OR subject:\\"password"'
+    )
