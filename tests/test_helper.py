@@ -3,7 +3,7 @@
 import pytest
 from soar_sdk.exceptions import ActionFailure
 
-from src.helper import validate_graph_next_link
+from src.helper import validate_graph_next_link, validate_graph_page_count
 
 
 def test_validate_graph_next_link_accepts_graph_pagination_url():
@@ -24,3 +24,10 @@ def test_validate_graph_next_link_accepts_graph_pagination_url():
 def test_validate_graph_next_link_rejects_untrusted_url(next_link):
     with pytest.raises(ActionFailure, match="untrusted pagination URL"):
         validate_graph_next_link(next_link)
+
+
+def test_validate_graph_page_count_rejects_page_after_safety_limit():
+    validate_graph_page_count(1000)
+
+    with pytest.raises(ActionFailure, match="1000-page safety limit"):
+        validate_graph_page_count(1001)

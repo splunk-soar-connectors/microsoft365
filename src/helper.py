@@ -28,6 +28,7 @@ from .consts import (
     MSGOFFICE365_DEFAULT_REQUEST_TIMEOUT,
     MSGOFFICE365_DEFAULT_RETRY_WAIT_TIME,
     MSGOFFICE365_DEFAULT_SCOPE,
+    MSGOFFICE365_MAX_PAGES,
     MSGOFFICE365_WELL_KNOWN_FOLDERS_FILTER,
     MSGRAPH_API_URL,
     SERVER_TOKEN_URL,
@@ -54,6 +55,14 @@ def validate_graph_next_link(next_link: str) -> str:
     return next_link
 
 
+def validate_graph_page_count(page_count: int) -> None:
+    """Bound pagination even when an upstream keeps returning continuation links."""
+    if page_count > MSGOFFICE365_MAX_PAGES:
+        raise ActionFailure(
+            f"Microsoft Graph pagination exceeded the {MSGOFFICE365_MAX_PAGES}-page safety limit"
+        )
+
+
 class MsGraphHelper:
     def __init__(self, soar: SOARClient, asset):
         self.soar = soar
@@ -65,6 +74,8 @@ class MsGraphHelper:
         self._retry_wait_time = (
             asset.retry_wait_time or MSGOFFICE365_DEFAULT_RETRY_WAIT_TIME
         )
+        self._pagination_page_count = 0
+        self._last_next_link = None
 
     def _get_auth_state(self) -> dict:
         return dict(self.asset.auth_state.get_all())
@@ -233,8 +244,17 @@ class MsGraphHelper:
         beta=False,
     ):
         if nextLink:
+            if nextLink == self._last_next_link:
+                raise ActionFailure(
+                    "Microsoft Graph returned a repeated pagination URL"
+                )
+            self._pagination_page_count += 1
+            validate_graph_page_count(self._pagination_page_count)
             url = validate_graph_next_link(nextLink)
+            self._last_next_link = nextLink
         else:
+            self._pagination_page_count = 1
+            self._last_next_link = None
             api_version = "beta" if beta else "v1.0"
             url = f"{MSGRAPH_API_URL}/{api_version}{endpoint}"
 
