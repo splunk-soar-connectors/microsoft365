@@ -4,3 +4,4 @@
 * Added a page limit and repeated-link detection to every Microsoft Graph pagination flow.
 * Escaped caller-supplied OData string literals and Microsoft Graph search phrases.
 * Routed not-junk reports to `markAsNotJunk` and rejected unsupported report actions.
+* Created and removed exact Microsoft 365 sender rules in the Inbox, with pagination and post-change verification.
