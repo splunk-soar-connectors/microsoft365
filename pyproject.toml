@@ -1,6 +1,6 @@
 [project]
 name = "microsoft365"
-version = "1.2.2"
+version = "1.2.3"
 description = "This app enables MS Graph API-based email ingestion and investigative actions on Microsoft 365, replacing the Microsoft Graph for Office 365 app."
 license = "Copyright (c) 2017-2026 Splunk Inc."
 requires-python = ">=3.13, <3.15"
@@ -9,7 +9,7 @@ dependencies = [
     "beautifulsoup4>=4.13.0,<4.14.0",
     "msal>=1.35.1",
     "requests>=2.33.1",
-    "splunk-soar-sdk[email]>=3.26.1",
+    "splunk-soar-sdk[email]>=3.26.2",
 ]
 
 # [tool.uv.sources]
