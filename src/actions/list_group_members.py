@@ -4,7 +4,7 @@ from soar_sdk.action_results import ActionOutput
 from soar_sdk.params import Param, Params
 
 from ..app import Asset, app
-from ..helper import MsGraphHelper
+from ..helper import GraphPaginationState, MsGraphHelper
 
 
 class ListGroupMembersParams(Params):
@@ -44,9 +44,13 @@ def list_group_members(
 
     members = []
     next_link = None
+    pagination_state = GraphPaginationState()
     while True:
         resp = helper.make_rest_call_helper(
-            endpoint, params=api_params if api_params else None, nextLink=next_link
+            endpoint,
+            params=api_params if api_params else None,
+            nextLink=next_link,
+            pagination_state=pagination_state,
         )
         members.extend(resp.get("value", []))
 

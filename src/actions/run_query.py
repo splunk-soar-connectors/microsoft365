@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from ..app import Asset
 from ..consts import MSGOFFICE365_PER_PAGE_COUNT, MSGOFFICE365_SELECT_PARAMETER_LIST
 from ..helper import (
+    GraphPaginationState,
     MsGraphHelper,
     escape_odata_string,
     quote_graph_search_phrase,
@@ -170,9 +171,13 @@ def run_query(
 
     emails = []
     next_link = None
+    pagination_state = GraphPaginationState()
     while len(emails) < params.limit:
         resp = helper.make_rest_call_helper(
-            endpoint, params=api_params, nextLink=next_link
+            endpoint,
+            params=api_params,
+            nextLink=next_link,
+            pagination_state=pagination_state,
         )
         emails.extend(resp.get("value", []))
 

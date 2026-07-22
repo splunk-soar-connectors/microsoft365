@@ -13,6 +13,7 @@
 
 import json
 import time
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 import requests
@@ -73,6 +74,24 @@ def validate_graph_page_count(page_count: int) -> None:
         )
 
 
+@dataclass
+class GraphPaginationState:
+    page_count: int = 0
+    seen_next_links: set[str] = field(default_factory=set)
+
+    def record_page(self, next_link: str | None) -> str | None:
+        self.page_count += 1
+        validate_graph_page_count(self.page_count)
+        if next_link is None:
+            return None
+
+        validated_link = validate_graph_next_link(next_link)
+        if validated_link in self.seen_next_links:
+            raise ActionFailure("Microsoft Graph returned a repeated pagination URL")
+        self.seen_next_links.add(validated_link)
+        return validated_link
+
+
 class MsGraphHelper:
     def __init__(self, soar: SOARClient, asset):
         self.soar = soar
@@ -84,8 +103,6 @@ class MsGraphHelper:
         self._retry_wait_time = (
             asset.retry_wait_time or MSGOFFICE365_DEFAULT_RETRY_WAIT_TIME
         )
-        self._pagination_page_count = 0
-        self._last_next_link = None
 
     def _get_auth_state(self) -> dict:
         return dict(self.asset.auth_state.get_all())
@@ -250,21 +267,18 @@ class MsGraphHelper:
         params=None,
         data=None,
         nextLink=None,
+        pagination_state: GraphPaginationState | None = None,
         download=False,
         beta=False,
     ):
+        if pagination_state is not None:
+            nextLink = pagination_state.record_page(nextLink)
+        elif nextLink is not None:
+            raise ActionFailure("Microsoft Graph pagination state is required")
+
         if nextLink:
-            if nextLink == self._last_next_link:
-                raise ActionFailure(
-                    "Microsoft Graph returned a repeated pagination URL"
-                )
-            self._pagination_page_count += 1
-            validate_graph_page_count(self._pagination_page_count)
-            url = validate_graph_next_link(nextLink)
-            self._last_next_link = nextLink
+            url = nextLink
         else:
-            self._pagination_page_count = 1
-            self._last_next_link = None
             api_version = "beta" if beta else "v1.0"
             url = f"{MSGRAPH_API_URL}/{api_version}{endpoint}"
 

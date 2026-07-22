@@ -57,9 +57,10 @@ def test_scheduled_poll_consumes_next_link_and_uses_checkpoint_safe_order(mocker
         helper.make_rest_call_helper.call_args_list[0].kwargs["params"]["$orderby"]
         == "receivedDateTime asc"
     )
-    assert helper.make_rest_call_helper.call_args_list[1].kwargs == {
-        "params": None,
-        "nextLink": "https://graph.microsoft.com/v1.0/next",
-    }
+    first_page_kwargs = helper.make_rest_call_helper.call_args_list[0].kwargs
+    next_page_kwargs = helper.make_rest_call_helper.call_args_list[1].kwargs
+    assert next_page_kwargs["params"] is None
+    assert next_page_kwargs["nextLink"] == "https://graph.microsoft.com/v1.0/next"
+    assert next_page_kwargs["pagination_state"] is first_page_kwargs["pagination_state"]
     assert state["last_time"] == "2026-07-16T02:00:00Z"
     assert state["first_run"] is False

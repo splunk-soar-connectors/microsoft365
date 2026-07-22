@@ -57,7 +57,7 @@ from .consts import (
     MSGOFFICE365_PER_PAGE_COUNT,
     MSGOFFICE365_SELECT_PARAMETER_LIST,
 )
-from .helper import MsGraphHelper
+from .helper import GraphPaginationState, MsGraphHelper
 
 
 logger = getLogger()
@@ -494,12 +494,14 @@ def on_poll(
     emails_processed = 0
     latest_time = last_time
     next_link = None
+    pagination_state = GraphPaginationState()
 
     while emails_processed < max_emails:
         resp = helper.make_rest_call_helper(
             endpoint,
             params=api_params if next_link is None else None,
             nextLink=next_link,
+            pagination_state=pagination_state,
         )
         emails = resp.get("value", [])
 
@@ -838,12 +840,14 @@ def on_es_poll(
     latest_time = last_time
     new_boundary_ids: set[str] = set()
     next_link = None
+    pagination_state = GraphPaginationState()
 
     while emails_processed < max_emails:
         resp = helper.make_rest_call_helper(
             endpoint,
             params=api_params if next_link is None else None,
             nextLink=next_link,
+            pagination_state=pagination_state,
         )
         emails = resp.get("value", [])
 

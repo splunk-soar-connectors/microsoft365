@@ -10,7 +10,7 @@ from soar_sdk.params import Param, Params
 
 if TYPE_CHECKING:
     from ..app import Asset
-from ..helper import MsGraphHelper, serialize_complex_fields
+from ..helper import GraphPaginationState, MsGraphHelper, serialize_complex_fields
 
 
 class ListEventsParams(Params):
@@ -133,9 +133,13 @@ def list_events(
 
     events = []
     next_link = None
+    pagination_state = GraphPaginationState()
     while True:
         resp = helper.make_rest_call_helper(
-            endpoint, params=api_params if api_params else None, nextLink=next_link
+            endpoint,
+            params=api_params if api_params else None,
+            nextLink=next_link,
+            pagination_state=pagination_state,
         )
         for event in resp.get("value", []):
             attendees = event.get("attendees", [])
