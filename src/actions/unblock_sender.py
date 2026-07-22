@@ -5,6 +5,7 @@ from soar_sdk.params import Param, Params
 
 from ..app import Asset, app
 from ..helper import MsGraphHelper
+from ._message_rules import list_message_rules, message_rules_endpoint
 
 
 class UnblockSenderParams(Params):
@@ -25,7 +26,9 @@ class UnblockSenderOutput(ActionOutput):
 
 
 @app.action(
-    description="Remove a sender from the blocked senders list", action_type="correct"
+    description="Remove a sender from the blocked senders list",
+    action_type="correct",
+    read_only=False,
 )
 def unblock_sender(
     params: UnblockSenderParams, soar: SOARClient, asset: Asset
@@ -33,24 +36,30 @@ def unblock_sender(
     helper = MsGraphHelper(soar, asset)
     helper.get_token()
 
-    endpoint = f"/users/{params.email_address}/mailFolders/inbox/messageRules"
-    resp = helper.make_rest_call_helper(endpoint)
-
-    rules = resp.get("value", [])
-    rule_id = None
-    for rule in rules:
-        display_name = rule.get("displayName", "")
-        if f"Block sender: {params.sender}" in display_name:
-            rule_id = rule.get("id")
-            break
-
-    if not rule_id:
+    endpoint = message_rules_endpoint(params.email_address)
+    display_name = f"Block sender: {params.sender}"
+    matching_rules = [
+        rule
+        for rule in list_message_rules(helper, params.email_address)
+        if rule.get("displayName") == display_name
+    ]
+    if not matching_rules:
         raise ValueError(f"No blocking rule found for sender: {params.sender}")
+    if len(matching_rules) > 1:
+        raise ValueError(f"Multiple blocking rules found for sender: {params.sender}")
 
-    delete_endpoint = (
-        f"/users/{params.email_address}/mailFolders/inbox/messageRules/{rule_id}"
-    )
+    rule_id = matching_rules[0].get("id")
+    if not rule_id:
+        raise ValueError("The matching blocking rule is missing its ID")
+
+    delete_endpoint = f"{endpoint}/{rule_id}"
     helper.make_rest_call_helper(delete_endpoint, method="delete")
+
+    remaining_rules = list_message_rules(helper, params.email_address)
+    if any(rule.get("id") == rule_id for rule in remaining_rules):
+        raise ValueError(
+            "Microsoft 365 still returned the blocking rule after deletion"
+        )
 
     soar.set_message(f"Successfully unblocked sender: {params.sender}")
     return UnblockSenderOutput(

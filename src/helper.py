@@ -13,6 +13,8 @@
 
 import json
 import time
+from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
 import requests
 from soar_sdk.abstract import SOARClient
@@ -27,6 +29,7 @@ from .consts import (
     MSGOFFICE365_DEFAULT_REQUEST_TIMEOUT,
     MSGOFFICE365_DEFAULT_RETRY_WAIT_TIME,
     MSGOFFICE365_DEFAULT_SCOPE,
+    MSGOFFICE365_MAX_PAGES,
     MSGOFFICE365_WELL_KNOWN_FOLDERS_FILTER,
     MSGRAPH_API_URL,
     SERVER_TOKEN_URL,
@@ -34,6 +37,59 @@ from .consts import (
 
 
 logger = getLogger()
+
+
+def escape_odata_string(value: str) -> str:
+    """Escape a value embedded inside an OData single-quoted string literal."""
+    return value.replace("'", "''")
+
+
+def quote_graph_search_phrase(value: str) -> str:
+    """Quote a caller value as one Microsoft Graph search phrase."""
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def validate_graph_next_link(next_link: str) -> str:
+    """Reject pagination links that would carry the asset token off Microsoft Graph."""
+    parsed = urlsplit(next_link)
+    trusted = urlsplit(MSGRAPH_API_URL)
+    if (
+        parsed.scheme.casefold() != trusted.scheme.casefold()
+        or (parsed.hostname or "").casefold() != (trusted.hostname or "").casefold()
+        or parsed.port != trusted.port
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+        or not parsed.path.startswith(("/v1.0/", "/beta/"))
+    ):
+        raise ActionFailure("Microsoft Graph returned an untrusted pagination URL")
+    return next_link
+
+
+def validate_graph_page_count(page_count: int) -> None:
+    """Bound pagination even when an upstream keeps returning continuation links."""
+    if page_count > MSGOFFICE365_MAX_PAGES:
+        raise ActionFailure(
+            f"Microsoft Graph pagination exceeded the {MSGOFFICE365_MAX_PAGES}-page safety limit"
+        )
+
+
+@dataclass
+class GraphPaginationState:
+    page_count: int = 0
+    seen_next_links: set[str] = field(default_factory=set)
+
+    def record_page(self, next_link: str | None) -> str | None:
+        self.page_count += 1
+        validate_graph_page_count(self.page_count)
+        if next_link is None:
+            return None
+
+        validated_link = validate_graph_next_link(next_link)
+        if validated_link in self.seen_next_links:
+            raise ActionFailure("Microsoft Graph returned a repeated pagination URL")
+        self.seen_next_links.add(validated_link)
+        return validated_link
 
 
 class MsGraphHelper:
@@ -211,9 +267,15 @@ class MsGraphHelper:
         params=None,
         data=None,
         nextLink=None,
+        pagination_state: GraphPaginationState | None = None,
         download=False,
         beta=False,
     ):
+        if pagination_state is not None:
+            nextLink = pagination_state.record_page(nextLink)
+        elif nextLink is not None:
+            raise ActionFailure("Microsoft Graph pagination state is required")
+
         if nextLink:
             url = nextLink
         else:
@@ -262,7 +324,7 @@ class MsGraphHelper:
             else:
                 endpoint = f"/users/{email_address}/mailFolders"
 
-            params = {"$filter": f"displayName eq '{folder}'"}
+            params = {"$filter": f"displayName eq '{escape_odata_string(folder)}'"}
             resp = self.make_rest_call_helper(endpoint, params=params)
             value = resp.get("value", [])
             if not value:

@@ -7,6 +7,7 @@ from soar_sdk.params import Param, Params
 
 from ..app import Asset, app
 from ..helper import MsGraphHelper
+from ._message_rules import list_message_rules, message_rules_endpoint
 
 
 class BlockSenderParams(Params):
@@ -27,7 +28,9 @@ class BlockSenderOutput(ActionOutput):
 
 
 @app.action(
-    description="Add a sender to the blocked senders list", action_type="contain"
+    description="Add a sender to the blocked senders list",
+    action_type="contain",
+    read_only=False,
 )
 def block_sender(
     params: BlockSenderParams, soar: SOARClient, asset: Asset
@@ -35,16 +38,39 @@ def block_sender(
     helper = MsGraphHelper(soar, asset)
     helper.get_token()
 
-    endpoint = f"/users/{params.email_address}/mailFolders/junkemail/messageRules"
+    endpoint = message_rules_endpoint(params.email_address)
+    display_name = f"Block sender: {params.sender}"
+    if any(
+        rule.get("displayName") == display_name
+        for rule in list_message_rules(helper, params.email_address)
+    ):
+        raise ValueError(f"A blocking rule already exists for sender: {params.sender}")
+
     body = {
-        "displayName": f"Block sender: {params.sender}",
+        "displayName": display_name,
         "sequence": 1,
         "isEnabled": True,
-        "conditions": {"senderContains": [params.sender]},
+        "conditions": {"fromAddresses": [{"emailAddress": {"address": params.sender}}]},
         "actions": {"delete": True, "stopProcessingRules": True},
     }
 
-    helper.make_rest_call_helper(endpoint, method="post", data=json.dumps(body))
+    created_rule = helper.make_rest_call_helper(
+        endpoint, method="post", data=json.dumps(body)
+    )
+    rule_id = created_rule.get("id")
+    if not rule_id or created_rule.get("displayName") != display_name:
+        raise ValueError(
+            "Microsoft 365 did not confirm creation of the intended blocking rule"
+        )
+
+    verified_rule = helper.make_rest_call_helper(f"{endpoint}/{rule_id}")
+    if (
+        verified_rule.get("id") != rule_id
+        or verified_rule.get("displayName") != display_name
+    ):
+        raise ValueError(
+            "Microsoft 365 did not return the intended blocking rule after creation"
+        )
 
     soar.set_message(f"Successfully blocked sender: {params.sender}")
     return BlockSenderOutput(message=f"Successfully blocked sender: {params.sender}")

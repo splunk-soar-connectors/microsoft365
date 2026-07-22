@@ -6,7 +6,7 @@ from soar_sdk.params import Param, Params
 
 from ..app import Asset, app
 from ..consts import MSGOFFICE365_PER_PAGE_COUNT, MSGOFFICE365_SELECT_PARAMETER_LIST
-from ..helper import MsGraphHelper, serialize_complex_fields
+from ..helper import GraphPaginationState, MsGraphHelper, serialize_complex_fields
 
 
 class GetMailboxMessagesParams(Params):
@@ -77,9 +77,13 @@ def get_mailbox_messages(
 
     messages = []
     next_link = None
+    pagination_state = GraphPaginationState()
     while len(messages) < params.limit:
         resp = helper.make_rest_call_helper(
-            endpoint, params=api_params, nextLink=next_link
+            endpoint,
+            params=api_params,
+            nextLink=next_link,
+            pagination_state=pagination_state,
         )
         messages.extend(resp.get("value", []))
 

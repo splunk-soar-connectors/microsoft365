@@ -28,7 +28,7 @@ class ReportMessageParams(Params):
     report_action: str = Param(
         description="Indicates the type of action to be reported on the message",
         required=True,
-        value_list=["junk", "notJunk", "phish", "unknown", "unknownFutureValue"],
+        value_list=["junk", "notJunk", "phish"],
     )
 
 
@@ -39,6 +39,7 @@ class ReportMessageOutput(ActionOutput):
 @app.action(
     description="Add the sender email into the report",
     action_type="contain",
+    read_only=False,
 )
 def report_message(
     params: ReportMessageParams, soar: SOARClient, asset: Asset
@@ -46,19 +47,20 @@ def report_message(
     helper = MsGraphHelper(soar, asset)
     helper.get_token()
 
-    endpoint = f"/users/{params.user_id}/messages/{params.message_id}/markAsJunk"
-
-    body = {
-        "moveToJunk": params.is_message_move_requested
-        if params.report_action == "junk"
-        else False,
-    }
-
     if params.report_action in ["junk", "phish"]:
-        helper.make_rest_call_helper(endpoint, method="post", data=json.dumps(body))
+        endpoint = f"/users/{params.user_id}/messages/{params.message_id}/markAsJunk"
+        body = {
+            "moveToJunk": params.is_message_move_requested
+            if params.report_action == "junk"
+            else False,
+        }
     elif params.report_action == "notJunk":
-        body["moveToJunk"] = False
-        helper.make_rest_call_helper(endpoint, method="post", data=json.dumps(body))
+        endpoint = f"/users/{params.user_id}/messages/{params.message_id}/markAsNotJunk"
+        body = {"moveToInbox": params.is_message_move_requested}
+    else:
+        raise ValueError(f"Unsupported report action: {params.report_action}")
+
+    helper.make_rest_call_helper(endpoint, method="post", data=json.dumps(body))
 
     soar.set_message(f"Successfully reported message as {params.report_action}")
     return ReportMessageOutput(

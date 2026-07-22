@@ -1,1 +1,9 @@
 **Unreleased**
+
+* Restricted pagination links to the trusted Microsoft Graph origin before reusing the asset bearer token.
+* Added a page limit and repeated-link detection to every Microsoft Graph pagination flow.
+* Escaped caller-supplied OData string literals and Microsoft Graph search phrases.
+* Routed not-junk reports to `markAsNotJunk` and rejected unsupported report actions.
+* Created and removed exact Microsoft 365 sender rules in the Inbox, with pagination and post-change verification.
+* Preserved wrapper-email URLs and attachments when extracting reported messages, with corrupt attachment fallback.
+* Corrected scheduled-poll detection, pagination consumption, and checkpoint-safe ordering to prevent silent message loss.
