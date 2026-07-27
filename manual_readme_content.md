@@ -303,7 +303,10 @@ Test Connectivity needs at least one of these permissions:
 | list users | `User.ReadBasic.All` | `User.Read.All` | ReadBasic for basic info only |
 | list groups | `Group.Read.All` | `Group.Read.All` | Group information |
 | list group members | `GroupMember.Read.All` | `Group.Read.All` | Group membership |
+| list addresses | `Group.Read.All` | `Group.Read.All` | Expands a distribution list to its members |
 | resolve name | `User.Read` + `MailboxSettings.Read` | `User.Read.All` + `MailboxSettings.Read` | User lookup |
+| **Reporting Actions** | | | |
+| trace email | `ExchangeMessageTrace.Read.All` (App) | `ExchangeMessageTrace.Read.All` | Uses the Graph beta message trace API; requires a one-time service principal (see note below) |
 | **Settings Actions** | | | |
 | oof check | `MailboxSettings.Read` | `MailboxSettings.Read` | Out-of-office status |
 | get rule | `MailboxSettings.Read` | `MailboxSettings.Read` | Mail rules |
@@ -318,8 +321,19 @@ Test Connectivity needs at least one of these permissions:
 **Important Notes**:
 
 - **Test Connectivity**: Always requires at least `User.Read.All` (App) or `User.Read` (Del)
-- **Beta APIs**: Block/unblock sender actions use Microsoft Graph beta endpoints
+- **Beta APIs**: Block/unblock sender and trace email actions use Microsoft Graph beta endpoints
 - When you add the scope parameter, multiple scopes are passed as space-separated values. <br>For example: `https://graph.microsoft.com/User.Read https://graph.microsoft.com/Calendars.Read` <br>This means the scopes `User.Read` and `Calendars.Read` are being requested.
+
+### Trace Email Setup (Graph Message Trace API)
+
+The **trace email** action uses the Microsoft Graph message trace API (`GET /beta/admin/exchange/tracing/messageTraces`), which replaces the legacy Office 365 Reporting Web Service that the deprecated `office365` (EWS) app relied on. The legacy Reporting Web Service is being retired by Microsoft (starting April 6, 2026), so this action is Graph-native and uses application (app-only) authentication.
+
+To use this action:
+
+1. Add the `ExchangeMessageTrace.Read.All` **Application** permission to your app registration and grant admin consent.
+1. Provision a one-time service principal in your tenant for Microsoft's message trace application (app ID `8bd644d1-64a1-4d4b-ae52-2e0cbf64e373`). This can be done via Microsoft Graph PowerShell (`New-MgServicePrincipal -BodyParameter @{ appId = "8bd644d1-64a1-4d4b-ae52-2e0cbf64e373" }`) or by POSTing to `https://graph.microsoft.com/v1.0/servicePrincipals` with body `{ "appId": "8bd644d1-64a1-4d4b-ae52-2e0cbf64e373" }`. Provisioning may take several hours to complete, during which the action can return `401 Unauthorized`.
+
+Query constraints imposed by the API: results cover the last **90 days**, a single query cannot span more than **10 days**, and if no date range is provided the API returns the last **48 hours**. Unlike the legacy action, `from_ip` is not a server-side filterable field in Graph, so it is applied client-side against the returned results.
 
 ## User Permissions Setup
 
