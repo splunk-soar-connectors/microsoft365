@@ -11,7 +11,13 @@ from soar_sdk.params import Param, Params
 if TYPE_CHECKING:
     from ..app import Asset
 from ..consts import MSGOFFICE365_PER_PAGE_COUNT, MSGOFFICE365_SELECT_PARAMETER_LIST
-from ..helper import MsGraphHelper, serialize_complex_fields
+from ..helper import (
+    GraphPaginationState,
+    MsGraphHelper,
+    escape_odata_string,
+    quote_graph_search_phrase,
+    serialize_complex_fields,
+)
 
 
 class RunQueryParams(Params):
@@ -140,15 +146,19 @@ def run_query(
 
     filters = []
     if params.subject:
-        filters.append(f"contains(subject, '{params.subject}')")
+        filters.append(f"contains(subject, '{escape_odata_string(params.subject)}')")
     if params.sender:
-        filters.append(f"from/emailAddress/address eq '{params.sender}'")
+        filters.append(
+            f"from/emailAddress/address eq '{escape_odata_string(params.sender)}'"
+        )
     if params.internet_message_id:
-        filters.append(f"internetMessageId eq '{params.internet_message_id}'")
+        filters.append(
+            f"internetMessageId eq '{escape_odata_string(params.internet_message_id)}'"
+        )
 
     search = None
     if params.body:
-        search = f'"{params.body}"'
+        search = quote_graph_search_phrase(params.body)
 
     select_fields = ",".join(MSGOFFICE365_SELECT_PARAMETER_LIST)
     api_params = {"$select": select_fields}
@@ -161,9 +171,13 @@ def run_query(
 
     emails = []
     next_link = None
+    pagination_state = GraphPaginationState()
     while len(emails) < params.limit:
         resp = helper.make_rest_call_helper(
-            endpoint, params=api_params, nextLink=next_link
+            endpoint,
+            params=api_params,
+            nextLink=next_link,
+            pagination_state=pagination_state,
         )
         emails.extend(resp.get("value", []))
 

@@ -57,7 +57,7 @@ from .consts import (
     MSGOFFICE365_PER_PAGE_COUNT,
     MSGOFFICE365_SELECT_PARAMETER_LIST,
 )
-from .helper import MsGraphHelper
+from .helper import GraphPaginationState, MsGraphHelper
 
 
 logger = getLogger()
@@ -66,6 +66,19 @@ APP_ID = "cdcb0c71-162d-4fd5-8098-d6d93f36e90d"
 APP_NAME = "Microsoft 365"
 
 ADMIN_CONSENT_STATE_KEY = "admin_consent_granted"
+
+
+def _poll_orderby(
+    *, is_manual_poll: bool, is_first_run: bool, ingest_manner: str
+) -> str:
+    """Use oldest-first checkpoints after initial ingestion so capped polls cannot skip mail."""
+    if not is_manual_poll and not is_first_run:
+        return "receivedDateTime asc"
+    return (
+        MSGOFFICE365_ORDERBY_RECEIVED_DESC
+        if ingest_manner == "latest first"
+        else "receivedDateTime asc"
+    )
 
 
 def _extract_urls_domains(
@@ -452,12 +465,12 @@ def on_poll(
         if resolved_id:
             folder_id = resolved_id
 
-    is_poll_now = params.container_count is not None
+    is_first_run = state.get("first_run", True)
+    is_poll_now = params.is_manual_poll()
     if is_poll_now:
         max_emails = params.container_count if params.container_count > 0 else 100
         last_time = None
     else:
-        is_first_run = state.get("first_run", True)
         max_emails = (
             asset.first_run_max_emails if is_first_run else asset.max_containers
         )
@@ -468,9 +481,11 @@ def on_poll(
     api_params = {
         "$select": select_fields,
         "$top": str(min(max_emails, MSGOFFICE365_PER_PAGE_COUNT)),
-        "$orderby": MSGOFFICE365_ORDERBY_RECEIVED_DESC
-        if asset.ingest_manner == "latest first"
-        else "receivedDateTime asc",
+        "$orderby": _poll_orderby(
+            is_manual_poll=is_poll_now,
+            is_first_run=is_first_run,
+            ingest_manner=asset.ingest_manner,
+        ),
     }
 
     if last_time and not is_poll_now:
@@ -478,9 +493,16 @@ def on_poll(
 
     emails_processed = 0
     latest_time = last_time
+    next_link = None
+    pagination_state = GraphPaginationState()
 
     while emails_processed < max_emails:
-        resp = helper.make_rest_call_helper(endpoint, params=api_params)
+        resp = helper.make_rest_call_helper(
+            endpoint,
+            params=api_params if next_link is None else None,
+            nextLink=next_link,
+            pagination_state=pagination_state,
+        )
         emails = resp.get("value", [])
 
         if not emails:
@@ -703,7 +725,6 @@ def on_poll(
         if not next_link or emails_processed >= max_emails:
             break
         api_params = None
-        resp = helper.make_rest_call_helper(endpoint, nextLink=next_link)
 
     if not is_poll_now and latest_time:
         state["last_time"] = latest_time
@@ -741,9 +762,13 @@ def _extract_inner_email(
         if not (lower_name.endswith(".eml") or lower_name.endswith(".msg")):
             continue
 
-        inner_parsed = extract_email_data(
-            att.content, email_id, include_attachment_content=True
-        )
+        try:
+            inner_parsed = extract_email_data(
+                att.content, email_id, include_attachment_content=True
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to parse attached email {att.filename}: {exc}")
+            continue
 
         outer_headers = outer_parsed.headers
         body_text = outer_parsed.body.plain_text or outer_parsed.body.html or ""
@@ -761,6 +786,15 @@ def _extract_inner_email(
         return inner_parsed, reporter
 
     return None
+
+
+def _merge_email_urls(inner_urls: list[str], outer_urls: list[str]) -> list[str]:
+    """Preserve ordered URL evidence from both a reported email and its wrapper."""
+    return list(dict.fromkeys([*inner_urls, *outer_urls]))
+
+
+def _is_embedded_email_attachment(filename: str) -> bool:
+    return filename.lower().endswith((".eml", ".msg"))
 
 
 @app.on_es_poll()
@@ -792,9 +826,11 @@ def on_es_poll(
     api_params = {
         "$select": select_fields,
         "$top": str(min(max_emails, MSGOFFICE365_PER_PAGE_COUNT)),
-        "$orderby": MSGOFFICE365_ORDERBY_RECEIVED_DESC
-        if asset.ingest_manner == "latest first"
-        else "receivedDateTime asc",
+        "$orderby": _poll_orderby(
+            is_manual_poll=False,
+            is_first_run=last_time is None,
+            ingest_manner=asset.ingest_manner,
+        ),
     }
 
     if last_time:
@@ -803,9 +839,16 @@ def on_es_poll(
     emails_processed = 0
     latest_time = last_time
     new_boundary_ids: set[str] = set()
+    next_link = None
+    pagination_state = GraphPaginationState()
 
     while emails_processed < max_emails:
-        resp = helper.make_rest_call_helper(endpoint, params=api_params)
+        resp = helper.make_rest_call_helper(
+            endpoint,
+            params=api_params if next_link is None else None,
+            nextLink=next_link,
+            pagination_state=pagination_state,
+        )
         emails = resp.get("value", [])
 
         if not emails:
@@ -868,7 +911,8 @@ def on_es_poll(
                         )
 
                         reporter = None
-                        inner = _extract_inner_email(parsed, email_id)
+                        outer_parsed = parsed
+                        inner = _extract_inner_email(outer_parsed, email_id)
                         if inner is not None:
                             parsed, reporter = inner
                             outer_attachments = attachments
@@ -911,7 +955,12 @@ def on_es_poll(
                         finding_email = FindingEmail(
                             headers=email_headers or None,
                             body=body_text or None,
-                            urls=parsed.urls or None,
+                            urls=(
+                                _merge_email_urls(parsed.urls, outer_parsed.urls)
+                                if reporter
+                                else parsed.urls
+                            )
+                            or None,
                             reporter=reporter,
                         )
                         for att in parsed.attachments:
@@ -923,6 +972,18 @@ def on_es_poll(
                                         is_raw_email=False,
                                     )
                                 )
+                        if reporter:
+                            for att in outer_parsed.attachments:
+                                if att.content and not _is_embedded_email_attachment(
+                                    att.filename
+                                ):
+                                    attachments.append(
+                                        FindingAttachment(
+                                            file_name=att.filename,
+                                            data=att.content,
+                                            is_raw_email=False,
+                                        )
+                                    )
                     except Exception as e:
                         logger.warning(f"Failed to parse email content: {e}")
             except Exception as e:
@@ -945,7 +1006,6 @@ def on_es_poll(
         if not next_link or emails_processed >= max_emails:
             break
         api_params = None
-        helper.make_rest_call_helper(endpoint, nextLink=next_link)
 
     logger.info(f"Processed {emails_processed} emails for ES findings")
 

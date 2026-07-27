@@ -4,7 +4,7 @@ from soar_sdk.action_results import ActionOutput
 from soar_sdk.params import Param, Params
 
 from ..app import Asset, app
-from ..helper import MsGraphHelper
+from ..helper import GraphPaginationState, MsGraphHelper
 
 
 class ListFoldersParams(Params):
@@ -51,8 +51,13 @@ def list_folders(
 
     folders = []
     next_link = None
+    pagination_state = GraphPaginationState()
     while True:
-        resp = helper.make_rest_call_helper(endpoint, nextLink=next_link)
+        resp = helper.make_rest_call_helper(
+            endpoint,
+            nextLink=next_link,
+            pagination_state=pagination_state,
+        )
         folders.extend(resp.get("value", []))
 
         next_link = resp.get("@odata.nextLink")
