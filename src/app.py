@@ -1021,6 +1021,7 @@ from .actions import (  # noqa: F401
     get_email_properties,
     get_folder_id,
     get_mailbox_messages,
+    list_addresses,
     list_folders,
     list_group_members,
     list_groups,
@@ -1030,6 +1031,7 @@ from .actions import (  # noqa: F401
     oof_check,
     report_message,
     send_email,
+    trace_email,
     unblock_sender,
     update_email,
 )
