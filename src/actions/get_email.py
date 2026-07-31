@@ -1,16 +1,21 @@
 # Copyright (c) 2017-2026 Splunk Inc.
 
+import base64
 import json
 from typing import TYPE_CHECKING
 
 from soar_sdk.abstract import SOARClient
 from soar_sdk.action_results import ActionOutput
+from soar_sdk.logging import getLogger
 from soar_sdk.params import Param, Params
 
 
 if TYPE_CHECKING:
     from ..app import Asset
 from ..helper import MsGraphHelper, serialize_complex_fields
+
+
+logger = getLogger()
 
 
 class GetEmailParams(Params):
@@ -131,6 +136,32 @@ def _extract_recipient_addresses(json_str):
     ]
 
 
+def _save_attachments_to_vault(attachments: list[dict], soar: SOARClient) -> list[dict]:
+    file_attachments = [
+        att
+        for att in attachments
+        if att.get("@odata.type") == "#microsoft.graph.fileAttachment"
+    ]
+    if not file_attachments:
+        return attachments
+
+    container_id = soar.get_executing_container_id()
+    for att in file_attachments:
+        content_bytes = att.pop("contentBytes", None)
+        if not content_bytes:
+            continue
+        try:
+            file_content = base64.b64decode(content_bytes)
+            att["vaultId"] = soar.vault.create_attachment(
+                container_id, file_content, att.get("name", "attachment")
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to add attachment '{att.get('name')}' to vault: {e}"
+            )
+    return attachments
+
+
 def render_get_email(output: list[GetEmailOutput]) -> dict:
     results = []
     for item in output:
@@ -188,7 +219,9 @@ def get_email(
     if params.download_attachments and resp.get("hasAttachments"):
         attach_endpoint = f"{endpoint}/attachments"
         attach_resp = helper.make_rest_call_helper(attach_endpoint)
-        resp["attachments"] = attach_resp.get("value", [])
+        resp["attachments"] = _save_attachments_to_vault(
+            attach_resp.get("value", []), soar
+        )
 
     resp["from_field"] = resp.pop("from", None)
     resp["event_id"] = (
