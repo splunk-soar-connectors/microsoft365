@@ -294,6 +294,15 @@ class Asset(BaseAsset):
         required=False,
         description="Email Address of the User (On Poll)",
     )
+    trusted_reporter_addresses: str = AssetField(
+        required=False,
+        description=(
+            "Comma-separated email addresses trusted to submit attached messages "
+            "as reports during ES polling"
+        ),
+        default="",
+        category=FieldCategory.INGEST,
+    )
     folder: str = AssetField(
         required=False,
         description="Mailbox folder name/folder path or the internal office365 folder ID to ingest (On Poll)",
@@ -845,6 +854,18 @@ def _extract_address(header_value: str | None) -> str | None:
     return addr or None
 
 
+def _is_trusted_reporter(sender: str | None, configured_addresses: str) -> bool:
+    """Return whether sender exactly matches an explicitly trusted reporter."""
+    if not sender:
+        return False
+    trusted = {
+        address.strip().casefold()
+        for address in configured_addresses.split(",")
+        if address.strip()
+    }
+    return sender.strip().casefold() in trusted
+
+
 def _extract_inner_email(
     outer_parsed: EmailData, email_id: str | None
 ) -> tuple[EmailData, FindingEmailReporter] | None:
@@ -1008,7 +1029,11 @@ def on_es_poll(
 
                         reporter = None
                         outer_parsed = parsed
-                        inner = _extract_inner_email(outer_parsed, email_id)
+                        inner = None
+                        if _is_trusted_reporter(
+                            sender, asset.trusted_reporter_addresses
+                        ):
+                            inner = _extract_inner_email(outer_parsed, email_id)
                         if inner is not None:
                             parsed, reporter = inner
                             outer_attachments = attachments
@@ -1032,18 +1057,6 @@ def on_es_poll(
                             else:
                                 date_str = _format_date_fallback(parsed.headers.date)
                                 rule_title = f"{sender} reported email from {original_sender} - No subject ({date_str})"
-                        else:
-                            outer_subject = email_data.get("subject")
-                            if outer_subject:
-                                rule_title = (
-                                    f"{sender} reported email - {outer_subject}"
-                                )
-                            else:
-                                date_str = _format_date_fallback(parsed.headers.date)
-                                rule_title = (
-                                    f"{sender} reported email - No subject ({date_str})"
-                                )
-
                         body_text = parsed.body.plain_text or parsed.body.html or ""
                         email_headers = {
                             k: v for k, v in parsed.to_dict()["headers"].items() if v

@@ -391,3 +391,70 @@ def test_on_poll_extract_domains_includes_mailto_and_schemeless_links(mocker):
         if getattr(item, "name", None) == "Domain Artifact"
     }
     assert domains == {"evil-domain.com", "bare-domain.com"}
+def test_es_poll_keeps_untrusted_outer_email_as_primary_evidence(mocker):
+    outer = SimpleNamespace(
+        headers=SimpleNamespace(
+            from_address="Attacker <attacker@example.com>",
+            to="soc@example.com",
+            cc=None,
+            bcc=None,
+            subject="Urgent payment request",
+            message_id="outer-message-id",
+            date="Fri, 1 Aug 2026 12:00:00 +0000",
+        ),
+        body=SimpleNamespace(plain_text="Visit https://outer.example/pay", html=None),
+        urls=["https://outer.example/pay"],
+        attachments=[
+            SimpleNamespace(filename="decoy.eml", content=b"benign decoy"),
+            SimpleNamespace(filename="invoice.exe", content=b"payload"),
+        ],
+        to_dict=lambda: {
+            "headers": {
+                "from_address": "Attacker <attacker@example.com>",
+                "to": "soc@example.com",
+                "subject": "Urgent payment request",
+                "message_id": "outer-message-id",
+            }
+        },
+    )
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [
+        {
+            "value": [
+                {
+                    "id": "outer-message-id",
+                    "subject": "Urgent payment request",
+                    "receivedDateTime": "2026-08-01T12:00:00Z",
+                    "from": {"emailAddress": {"address": "attacker@example.com"}},
+                }
+            ]
+        },
+        b"raw outer email",
+    ]
+    mocker.patch.object(app_module, "MsGraphHelper", return_value=helper)
+    mocker.patch.object(app_module, "extract_email_data", return_value=outer)
+    extract_inner = mocker.patch.object(app_module, "_extract_inner_email")
+    asset = SimpleNamespace(
+        ingest_state={},
+        email_address="soc@example.com",
+        folder="Inbox",
+        get_folder_id=False,
+        max_containers=10,
+        ingest_manner="oldest first",
+        trusted_reporter_addresses="analyst@example.com",
+    )
+
+    findings = list(app_module.on_es_poll.__wrapped__(Mock(), Mock(), asset))
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.rule_title == "Urgent payment request"
+    assert finding.email.headers["from_address"] == ("Attacker <attacker@example.com>")
+    assert finding.email.body == "Visit https://outer.example/pay"
+    assert finding.email.urls == ["https://outer.example/pay"]
+    assert finding.email.reporter is None
+    assert {attachment.file_name for attachment in finding.attachments} >= {
+        "invoice.exe",
+        "decoy.eml",
+    }
+    extract_inner.assert_not_called()

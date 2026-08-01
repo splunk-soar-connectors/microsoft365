@@ -33,3 +33,13 @@ def test_embedded_email_attachment_detection_is_case_insensitive():
     assert app_module._is_embedded_email_attachment("report.EML")
     assert app_module._is_embedded_email_attachment("report.msg")
     assert not app_module._is_embedded_email_attachment("payload.zip")
+
+
+def test_trusted_reporter_requires_exact_configured_address():
+    configured = "analyst@example.com, Reporter@Example.org"
+
+    assert app_module._is_trusted_reporter("ANALYST@example.com", configured)
+    assert app_module._is_trusted_reporter("reporter@example.org", configured)
+    assert not app_module._is_trusted_reporter("attacker@example.com", configured)
+    assert not app_module._is_trusted_reporter(None, configured)
+    assert not app_module._is_trusted_reporter("analyst@example.com", "")
