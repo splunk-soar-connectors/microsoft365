@@ -1,1 +1,3 @@
 **Unreleased**
+
+* Fixed `get email` and `on poll` failing to add downloaded attachments and EML files to the SOAR Vault.

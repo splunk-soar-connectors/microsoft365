@@ -603,17 +603,14 @@ def on_poll(
                             email_data.get("subject") or f"email_message_{email_id}"
                         )
                         file_name = f"{subject}.eml"
-                        vault_info = soar.vault.add(
-                            file_content=eml_content,
-                            file_name=file_name,
+                        vault_id = soar.vault.create_attachment(
+                            container.container_id, eml_content, file_name
                         )
                         yield Artifact(
                             name="Vault Artifact",
                             label="email attachment",
                             cef={
-                                "vaultId": vault_info.vault_id
-                                if hasattr(vault_info, "vault_id")
-                                else str(vault_info),
+                                "vaultId": vault_id,
                                 "fileName": file_name,
                                 "fileHashSha256": file_hash,
                             },
@@ -641,17 +638,16 @@ def on_poll(
                                 try:
                                     file_content = base64.b64decode(content_bytes)
                                     file_hash = hashlib.sha256(file_content).hexdigest()
-                                    vault_info = soar.vault.add(
-                                        file_content=file_content,
-                                        file_name=att.get("name", "attachment"),
+                                    vault_id = soar.vault.create_attachment(
+                                        container.container_id,
+                                        file_content,
+                                        att.get("name", "attachment"),
                                     )
                                     yield Artifact(
                                         name="Vault Artifact",
                                         label="attachment",
                                         cef={
-                                            "vaultId": vault_info.vault_id
-                                            if hasattr(vault_info, "vault_id")
-                                            else str(vault_info),
+                                            "vaultId": vault_id,
                                             "fileName": att.get("name"),
                                             "fileSize": att.get("size"),
                                             "fileHashSha256": file_hash,
@@ -684,17 +680,14 @@ def on_poll(
                                     file_hash = hashlib.sha256(eml_content).hexdigest()
                                     att_name = att.get("name", "embedded_email")
                                     file_name = f"{att_name}.eml"
-                                    vault_info = soar.vault.add(
-                                        file_content=eml_content,
-                                        file_name=file_name,
+                                    vault_id = soar.vault.create_attachment(
+                                        container.container_id, eml_content, file_name
                                     )
                                     yield Artifact(
                                         name="Vault Artifact",
                                         label="attachment",
                                         cef={
-                                            "vaultId": vault_info.vault_id
-                                            if hasattr(vault_info, "vault_id")
-                                            else str(vault_info),
+                                            "vaultId": vault_id,
                                             "fileName": file_name,
                                             "fileSize": att.get("size"),
                                             "lastModified": att.get(
