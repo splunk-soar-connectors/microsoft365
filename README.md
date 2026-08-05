@@ -1,7 +1,7 @@
 # Microsoft 365
 
 Publisher: Splunk <br>
-Connector Version: 1.2.4 <br>
+Connector Version: 1.2.5 <br>
 Product Vendor: Microsoft <br>
 Product Name: Microsoft 365 (MS Graph) <br>
 Minimum Product Version: 7.0.0
