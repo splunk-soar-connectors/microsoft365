@@ -39,7 +39,9 @@ class CreateFolderOutput(ActionOutput):
     totalItemCount: int | None = None
 
 
-@app.action(description="Create a new mail folder", action_type="generic")
+@app.action(
+    description="Create a new mail folder", action_type="generic", read_only=True
+)
 def create_folder(
     params: CreateFolderParams, soar: SOARClient, asset: Asset
 ) -> CreateFolderOutput:

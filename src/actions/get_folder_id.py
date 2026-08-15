@@ -27,7 +27,9 @@ class GetFolderIdOutput(ActionOutput):
     parent_folder_id: str | None = None
 
 
-@app.action(description="Get the ID of a mail folder", action_type="investigate")
+@app.action(
+    description="Get the ID of a mail folder", action_type="investigate", read_only=True
+)
 def get_folder_id(
     params: GetFolderIdParams, soar: SOARClient, asset: Asset
 ) -> GetFolderIdOutput:

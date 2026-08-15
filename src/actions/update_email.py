@@ -40,7 +40,9 @@ class UpdateEmailOutput(ActionOutput):
     categories: str | None = None
 
 
-@app.action(description="Update properties of an email", action_type="generic")
+@app.action(
+    description="Update properties of an email", action_type="generic", read_only=True
+)
 def update_email(
     params: UpdateEmailParams, soar: SOARClient, asset: Asset
 ) -> UpdateEmailOutput:

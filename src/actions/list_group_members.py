@@ -27,7 +27,7 @@ class GroupMemberOutput(ActionOutput):
     userType: str | None = None
 
 
-@app.action(description="Get group members", action_type="investigate")
+@app.action(description="Get group members", action_type="investigate", read_only=True)
 def list_group_members(
     params: ListGroupMembersParams, soar: SOARClient, asset: Asset
 ) -> list[GroupMemberOutput]:

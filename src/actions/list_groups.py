@@ -30,6 +30,7 @@ class GroupOutput(ActionOutput):
 @app.action(
     description="List all the groups in an organization, including but not limited to Office 365 groups",
     action_type="investigate",
+    read_only=True,
 )
 def list_groups(
     params: ListGroupsParams, soar: SOARClient, asset: Asset

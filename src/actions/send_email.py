@@ -56,7 +56,7 @@ def _parse_recipients(email_str: str) -> list:
     return [{"emailAddress": {"address": e}} for e in emails]
 
 
-@app.action(description="Send an email", action_type="generic")
+@app.action(description="Send an email", action_type="generic", read_only=True)
 def send_email(
     params: SendEmailParams, soar: SOARClient, asset: Asset
 ) -> SendEmailOutput:

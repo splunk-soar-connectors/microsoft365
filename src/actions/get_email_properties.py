@@ -73,7 +73,9 @@ COMPLEX_EMAIL_PROPS_FIELDS = [
 ]
 
 
-@app.action(description="Get properties of an email", action_type="investigate")
+@app.action(
+    description="Get properties of an email", action_type="investigate", read_only=True
+)
 def get_email_properties(
     params: GetEmailPropertiesParams, soar: SOARClient, asset: Asset
 ) -> GetEmailPropertiesOutput:
