@@ -40,7 +40,7 @@ class CreateFolderOutput(ActionOutput):
 
 
 @app.action(
-    description="Create a new mail folder", action_type="generic", read_only=True
+    description="Create a new mail folder", action_type="generic", read_only=False
 )
 def create_folder(
     params: CreateFolderParams, soar: SOARClient, asset: Asset

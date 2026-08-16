@@ -32,7 +32,7 @@ class DeleteEventOutput(ActionOutput):
     message: str | None = None
 
 
-@app.action(description="Delete an event", action_type="generic", read_only=True)
+@app.action(description="Delete an event", action_type="generic", read_only=False)
 def delete_event(
     params: DeleteEventParams, soar: SOARClient, asset: Asset
 ) -> DeleteEventOutput:

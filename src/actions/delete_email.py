@@ -25,7 +25,7 @@ class DeleteEmailOutput(ActionOutput):
     message: str | None = None
 
 
-@app.action(description="Delete an email", action_type="generic", read_only=True)
+@app.action(description="Delete an email", action_type="generic", read_only=False)
 def delete_email(
     params: DeleteEmailParams, soar: SOARClient, asset: Asset
 ) -> DeleteEmailOutput:

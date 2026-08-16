@@ -40,7 +40,7 @@ class MoveEmailOutput(ActionOutput):
 
 
 @app.action(
-    description="Move an email to a folder", action_type="generic", read_only=True
+    description="Move an email to a folder", action_type="generic", read_only=False
 )
 def move_email(
     params: MoveEmailParams, soar: SOARClient, asset: Asset
