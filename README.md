@@ -712,7 +712,7 @@ No Output
 Copy an email to a folder
 
 Type: **generic** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -744,7 +744,7 @@ summary.total_objects_successful | numeric | | 1 |
 Create a new mail folder
 
 Type: **generic** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -778,7 +778,7 @@ summary.total_objects_successful | numeric | | 1 |
 Delete an email
 
 Type: **generic** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -804,7 +804,7 @@ summary.total_objects_successful | numeric | | 1 |
 Delete an event
 
 Type: **generic** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -1136,7 +1136,7 @@ summary.total_objects_successful | numeric | | 1 |
 Move an email to a folder
 
 Type: **generic** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -1227,7 +1227,7 @@ summary.total_objects_successful | numeric | | 1 |
 Send an email
 
 Type: **generic** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -1289,7 +1289,7 @@ summary.total_objects_successful | numeric | | 1 |
 Update properties of an email
 
 Type: **generic** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -1578,7 +1578,7 @@ summary.total_objects_successful | numeric | | 1 |
 Delete inbox rule by ID
 
 Type: **contain** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -1603,7 +1603,7 @@ summary.total_objects_successful | numeric | | 1 |
 Disable inbox rule by ID
 
 Type: **contain** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 

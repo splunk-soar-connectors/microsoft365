@@ -27,7 +27,7 @@ class DeleteRuleOutput(ActionOutput):
 
 
 @app.action(
-    description="Delete inbox rule by ID", action_type="contain", read_only=True
+    description="Delete inbox rule by ID", action_type="contain", read_only=False
 )
 def delete_rule(
     params: DeleteRuleParams, soar: SOARClient, asset: Asset
