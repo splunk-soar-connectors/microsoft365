@@ -57,7 +57,7 @@ from .consts import (
     MSGOFFICE365_PER_PAGE_COUNT,
     MSGOFFICE365_SELECT_PARAMETER_LIST,
 )
-from .helper import GraphPaginationState, MsGraphHelper
+from .helper import GraphPaginationState, MsGraphHelper, encode_path_segment
 
 
 logger = getLogger()
@@ -476,7 +476,9 @@ def on_poll(
         )
         last_time = state.get("last_time")
 
-    endpoint = f"/users/{email_address}/mailFolders/{folder_id}/messages"
+    endpoint = (
+        f"/users/{email_address}/mailFolders/{encode_path_segment(folder_id)}/messages"
+    )
     select_fields = ",".join(MSGOFFICE365_SELECT_PARAMETER_LIST)
     api_params = {
         "$select": select_fields,
@@ -592,7 +594,7 @@ def on_poll(
             if asset.extract_eml:
                 try:
                     eml_content = helper.make_rest_call_helper(
-                        f"/users/{email_address}/messages/{email_id}/$value",
+                        f"/users/{email_address}/messages/{encode_path_segment(email_id)}/$value",
                         download=True,
                     )
                     if eml_content:
@@ -626,7 +628,7 @@ def on_poll(
             if asset.extract_attachments and email_data.get("hasAttachments"):
                 try:
                     attachments_resp = helper.make_rest_call_helper(
-                        f"/users/{email_address}/messages/{email_id}/attachments"
+                        f"/users/{email_address}/messages/{encode_path_segment(email_id)}/attachments"
                     )
                     for att in attachments_resp.get("value", []):
                         att_type = att.get("@odata.type")
@@ -671,7 +673,7 @@ def on_poll(
                             att_id = att.get("id")
                             try:
                                 eml_content = helper.make_rest_call_helper(
-                                    f"/users/{email_address}/messages/{email_id}/attachments/{att_id}/$value",
+                                    f"/users/{email_address}/messages/{encode_path_segment(email_id)}/attachments/{encode_path_segment(att_id)}/$value",
                                     download=True,
                                 )
                                 if eml_content:
@@ -814,7 +816,9 @@ def on_es_poll(
     last_time = state.get("es_last_time")
     boundary_ids = set(state.get("es_boundary_ids", []))
 
-    endpoint = f"/users/{email_address}/mailFolders/{folder_id}/messages"
+    endpoint = (
+        f"/users/{email_address}/mailFolders/{encode_path_segment(folder_id)}/messages"
+    )
     select_fields = ",".join(MSGOFFICE365_SELECT_PARAMETER_LIST)
     api_params = {
         "$select": select_fields,
@@ -870,7 +874,7 @@ def on_es_poll(
 
             try:
                 eml_content = helper.make_rest_call_helper(
-                    f"/users/{email_address}/messages/{email_id}/$value",
+                    f"/users/{email_address}/messages/{encode_path_segment(email_id)}/$value",
                     download=True,
                 )
                 if eml_content:

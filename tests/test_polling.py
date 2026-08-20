@@ -160,3 +160,23 @@ def test_on_poll_extract_eml_adds_root_email_to_vault_using_container_id(mocker)
     ]
     assert len(vault_artifacts) == 1
     assert vault_artifacts[0].cef["vaultId"] == "vault-id-eml"
+
+
+def test_on_poll_encodes_message_id_when_fetching_eml(mocker):
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [
+        {"value": [_email("one/two+three=", "2026-07-16T01:00:00Z")]},
+        b"raw eml bytes",
+    ]
+    mocker.patch.object(app_module, "MsGraphHelper", return_value=helper)
+
+    params = Mock(container_count=4294967295)
+    params.is_manual_poll.return_value = False
+    asset = _asset(extract_eml=True)
+
+    list(app_module.on_poll.__wrapped__(params, Mock(), asset))
+
+    eml_endpoint = helper.make_rest_call_helper.call_args_list[1].args[0]
+    assert eml_endpoint == (
+        "/users/mailbox@example.com/messages/one%2Ftwo%2Bthree%3D/$value"
+    )

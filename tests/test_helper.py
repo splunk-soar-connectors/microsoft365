@@ -9,6 +9,7 @@ from soar_sdk.exceptions import ActionFailure
 from src.helper import (
     GraphPaginationState,
     MsGraphHelper,
+    encode_path_segment,
     escape_odata_string,
     quote_graph_search_phrase,
     validate_graph_next_link,
@@ -91,4 +92,28 @@ def test_escape_odata_string_keeps_value_inside_literal():
 def test_quote_graph_search_phrase_escapes_quotes_and_backslashes():
     assert quote_graph_search_phrase('invoice\\" OR subject:"password') == (
         '"invoice\\\\\\" OR subject:\\"password"'
+    )
+
+
+def test_encode_path_segment_escapes_graph_id_special_characters():
+    assert encode_path_segment("AAMk/AGI2+THk=") == "AAMk%2FAGI2%2BTHk%3D"
+
+
+def test_get_folder_id_encodes_parent_folder_id_in_child_lookup(mocker):
+    helper = _helper(mocker)
+    mocker.patch.object(
+        helper,
+        "make_rest_call_helper",
+        side_effect=[
+            {"value": [{"id": "parent/id+="}]},
+            {"value": [{"id": "child-id"}]},
+        ],
+    )
+
+    result = helper.get_folder_id("Inbox/Sub", "user@example.com")
+
+    assert result == "child-id"
+    second_call_endpoint = helper.make_rest_call_helper.call_args_list[1].args[0]
+    assert second_call_endpoint == (
+        "/users/user@example.com/mailFolders/parent%2Fid%2B%3D/childFolders"
     )

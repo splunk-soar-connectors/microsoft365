@@ -12,7 +12,7 @@ from soar_sdk.params import Param, Params
 
 if TYPE_CHECKING:
     from ..app import Asset
-from ..helper import MsGraphHelper, serialize_complex_fields
+from ..helper import MsGraphHelper, encode_path_segment, serialize_complex_fields
 
 
 logger = getLogger()
@@ -205,7 +205,9 @@ def get_email(
     helper = MsGraphHelper(soar, asset)
     helper.get_token()
 
-    endpoint = f"/users/{params.email_address}/messages/{params.id}"
+    endpoint = (
+        f"/users/{params.email_address}/messages/{encode_path_segment(params.id)}"
+    )
     resp = helper.make_rest_call_helper(endpoint)
 
     if params.get_headers:

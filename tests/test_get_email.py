@@ -93,3 +93,26 @@ def test_get_email_downloads_attachments_and_returns_vault_id(mocker):
         7, b"attachment payload", "report.pdf"
     )
     assert '"vaultId": "vault-id-abc"' in output.attachments
+
+
+def test_get_email_encodes_message_id_with_special_characters(mocker):
+    soar = Mock()
+    helper = Mock()
+    helper.make_rest_call_helper.return_value = {
+        "id": "msg/1+2=",
+        "hasAttachments": False,
+    }
+    mocker.patch("src.actions.get_email.MsGraphHelper", return_value=helper)
+
+    params = Mock(
+        id="msg/1+2=",
+        email_address="user@example.com",
+        get_headers=False,
+        download_attachments=False,
+        download_email=False,
+    )
+
+    get_email(params, soar, Mock())
+
+    called_endpoint = helper.make_rest_call_helper.call_args_list[0].args[0]
+    assert called_endpoint == "/users/user@example.com/messages/msg%2F1%2B2%3D"
