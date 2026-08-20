@@ -180,3 +180,48 @@ def test_on_poll_encodes_message_id_when_fetching_eml(mocker):
     assert eml_endpoint == (
         "/users/mailbox@example.com/messages/one%2Ftwo%2Bthree%3D/$value"
     )
+
+
+def test_on_poll_email_artifact_includes_full_field_set(mocker):
+    email_data = {
+        "id": "msg-1",
+        "subject": "Test",
+        "receivedDateTime": "2026-07-16T01:00:00Z",
+        "sentDateTime": "2026-07-16T00:59:00Z",
+        "lastModifiedDateTime": "2026-07-16T01:00:00Z",
+        "from": {"emailAddress": {"address": "sender@example.com"}},
+        "sender": {"emailAddress": {"address": "sender@example.com"}},
+        "toRecipients": [{"emailAddress": {"address": "to@example.com"}}],
+        "ccRecipients": [{"emailAddress": {"address": "cc@example.com"}}],
+        "bccRecipients": [{"emailAddress": {"address": "bcc@example.com"}}],
+        "body": {"content": ""},
+        "bodyPreview": "preview",
+        "hasAttachments": False,
+        "importance": "high",
+        "isRead": True,
+        "internetMessageId": "<abc@example.com>",
+        "internetMessageHeaders": [{"name": "X-Custom", "value": "1"}],
+    }
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [{"value": [email_data]}]
+    mocker.patch.object(app_module, "MsGraphHelper", return_value=helper)
+
+    params = Mock(container_count=4294967295)
+    params.is_manual_poll.return_value = False
+    asset = _asset()
+
+    output = list(app_module.on_poll.__wrapped__(params, Mock(), asset))
+
+    artifact = next(
+        item for item in output if getattr(item, "name", None) == "Email Artifact"
+    )
+    assert artifact.cef["toEmail"] == "to@example.com"
+    assert artifact.cef["toRecipients"] == ["to@example.com"]
+    assert artifact.cef["ccRecipients"] == ["cc@example.com"]
+    assert artifact.cef["bccRecipients"] == ["bcc@example.com"]
+    assert artifact.cef["senderEmail"] == "sender@example.com"
+    assert artifact.cef["sentDateTime"] == "2026-07-16T00:59:00Z"
+    assert artifact.cef["importance"] == "high"
+    assert artifact.cef["isRead"] is True
+    assert artifact.cef["internetMessageId"] == "<abc@example.com>"
+    assert artifact.cef["internetMessageHeaders"] == {"X-Custom": "1"}

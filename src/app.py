@@ -81,6 +81,64 @@ def _poll_orderby(
     )
 
 
+def _recipient_addresses(recipients: list[dict] | None) -> list[str]:
+    """Extract email addresses from a Graph recipient list (toRecipients/ccRecipients/etc)."""
+    if not recipients:
+        return []
+    return [
+        address
+        for r in recipients
+        if (address := r.get("emailAddress", {}).get("address"))
+    ]
+
+
+def _flatten_message_headers(headers: list[dict] | None) -> dict[str, str]:
+    """Flatten Graph's internetMessageHeaders list into a single name->value dict."""
+    if not headers:
+        return {}
+    return {h["name"]: h["value"] for h in headers if h.get("name") and h.get("value")}
+
+
+def _email_artifact_cef(
+    email_data: dict, message_id: str | None = None
+) -> tuple[dict, dict]:
+    """Build the Email Artifact cef/cef_types pair from a Graph message resource."""
+    to_addresses = _recipient_addresses(email_data.get("toRecipients"))
+    cc_addresses = _recipient_addresses(email_data.get("ccRecipients"))
+    bcc_addresses = _recipient_addresses(email_data.get("bccRecipients"))
+    cef = {
+        "messageId": message_id or email_data.get("id"),
+        "subject": email_data.get("subject"),
+        "fromEmail": email_data.get("from", {}).get("emailAddress", {}).get("address"),
+        "toEmail": to_addresses[0] if to_addresses else None,
+        "toRecipients": to_addresses,
+        "ccRecipients": cc_addresses,
+        "bccRecipients": bcc_addresses,
+        "senderEmail": email_data.get("sender", {})
+        .get("emailAddress", {})
+        .get("address"),
+        "receivedDateTime": email_data.get("receivedDateTime"),
+        "sentDateTime": email_data.get("sentDateTime"),
+        "bodyPreview": email_data.get("bodyPreview"),
+        "importance": email_data.get("importance"),
+        "isRead": email_data.get("isRead"),
+        "internetMessageId": email_data.get("internetMessageId"),
+        "internetMessageHeaders": _flatten_message_headers(
+            email_data.get("internetMessageHeaders")
+        ),
+    }
+    cef_types = {
+        "messageId": ["msgoffice365 message id"],
+        "fromEmail": ["email"],
+        "toEmail": ["email"],
+        "toRecipients": ["email"],
+        "ccRecipients": ["email"],
+        "bccRecipients": ["email"],
+        "senderEmail": ["email"],
+    }
+    return cef, cef_types
+
+
 def _extract_urls_domains(
     body: str, extract_urls: bool, extract_domains: bool
 ) -> tuple[set[str], set[str]]:
@@ -528,22 +586,9 @@ def on_poll(
             )
             yield container
 
+            cef, cef_types = _email_artifact_cef(email_data, email_id)
             artifact = Artifact(
-                name="Email Artifact",
-                label="email",
-                cef={
-                    "messageId": email_id,
-                    "subject": email_data.get("subject"),
-                    "fromEmail": email_data.get("from", {})
-                    .get("emailAddress", {})
-                    .get("address"),
-                    "receivedDateTime": email_data.get("receivedDateTime"),
-                    "bodyPreview": email_data.get("bodyPreview"),
-                },
-                cef_types={
-                    "messageId": ["msgoffice365 message id"],
-                    "fromEmail": ["email"],
-                },
+                name="Email Artifact", label="email", cef=cef, cef_types=cef_types
             )
             yield artifact
 
