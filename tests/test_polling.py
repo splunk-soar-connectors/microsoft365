@@ -277,6 +277,48 @@ def test_on_poll_item_attachment_creates_nested_email_artifact_without_ingest_em
     assert vault_artifacts == []
 
 
+def test_on_poll_item_attachment_extracts_domains_from_nested_body(mocker):
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [
+        {"value": [_email("one", "2026-07-16T01:00:00Z", has_attachments=True)]},
+        {
+            "value": [
+                {
+                    "@odata.type": "#microsoft.graph.itemAttachment",
+                    "id": "att-1",
+                    "name": "Fwd: report",
+                }
+            ]
+        },
+        {
+            "item": {
+                "id": "nested-1",
+                "subject": "Nested subject",
+                "from": {"emailAddress": {"address": "nested@example.com"}},
+                "body": {
+                    "content": (
+                        '<a href="mailto:phish@evil-domain.com">Report Phishing</a>'
+                    )
+                },
+            }
+        },
+    ]
+    mocker.patch.object(app_module, "MsGraphHelper", return_value=helper)
+
+    params = Mock(container_count=4294967295)
+    params.is_manual_poll.return_value = False
+    asset = _asset(extract_attachments=True, ingest_eml=False, extract_domains=True)
+
+    output = list(app_module.on_poll.__wrapped__(params, Mock(), asset))
+
+    domains = {
+        item.cef["destinationDnsDomain"]
+        for item in output
+        if getattr(item, "name", None) == "Domain Artifact"
+    }
+    assert domains == {"evil-domain.com"}
+
+
 def test_on_poll_item_attachment_saves_eml_to_vault_when_ingest_eml_enabled(mocker):
     helper = Mock()
     helper.make_rest_call_helper.side_effect = [
@@ -323,3 +365,29 @@ def test_on_poll_item_attachment_saves_eml_to_vault_when_ingest_eml_enabled(mock
     ]
     assert len(vault_artifacts) == 1
     assert vault_artifacts[0].cef["vaultId"] == "vault-id-nested"
+
+
+def test_on_poll_extract_domains_includes_mailto_and_schemeless_links(mocker):
+    email_data = _email("one", "2026-07-16T01:00:00Z")
+    email_data["body"] = {
+        "content": (
+            '<a href="mailto:phish@evil-domain.com">Report Phishing</a>'
+            '<a href="bare-domain.com/path">Bare link</a>'
+        )
+    }
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [{"value": [email_data]}]
+    mocker.patch.object(app_module, "MsGraphHelper", return_value=helper)
+
+    params = Mock(container_count=4294967295)
+    params.is_manual_poll.return_value = False
+    asset = _asset(extract_domains=True)
+
+    output = list(app_module.on_poll.__wrapped__(params, Mock(), asset))
+
+    domains = {
+        item.cef["destinationDnsDomain"]
+        for item in output
+        if getattr(item, "name", None) == "Domain Artifact"
+    }
+    assert domains == {"evil-domain.com", "bare-domain.com"}

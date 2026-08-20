@@ -62,6 +62,11 @@ from .helper import GraphPaginationState, MsGraphHelper, encode_path_segment
 
 logger = getLogger()
 
+_HOSTNAME_REGEX = re.compile(
+    r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
+    r"(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$"
+)
+
 APP_ID = "cdcb0c71-162d-4fd5-8098-d6d93f36e90d"
 APP_NAME = "Microsoft 365"
 
@@ -156,10 +161,14 @@ def _extract_urls_domains(
         return urls, domains
 
     uris = []
+    mailto_hrefs: list[str] = []
     for link in soup.find_all(href=True):
         uris.append(clean_url(link.get_text()))
-        if not link["href"].startswith("mailto:"):
-            uris.append(link["href"])
+        href = str(link["href"])
+        if href.startswith("mailto:"):
+            mailto_hrefs.append(href)
+        else:
+            uris.append(href)
 
     for src in soup.find_all(src=True):
         uris.append(clean_url(src.get_text()))
@@ -176,11 +185,23 @@ def _extract_urls_domains(
             try:
                 from urllib.parse import urlparse
 
-                parsed = urlparse(uri)
-                if parsed.netloc:
-                    domains.add(parsed.netloc.split(":")[0])
+                # Uris pulled from raw href/src attributes are not guaranteed to have
+                # a scheme, in which case urlparse treats the whole value as a path.
+                has_authority = "://" in uri or uri.startswith("//")
+                parsed = urlparse(uri if has_authority else f"//{uri}")
+                domain = parsed.netloc.split(":")[0]
+                if domain and not is_ip(domain) and _HOSTNAME_REGEX.match(domain):
+                    domains.add(domain)
             except Exception:
                 pass
+
+    if extract_domains:
+        for mailto_href in mailto_hrefs:
+            domain = mailto_href[mailto_href.find("@") + 1 :]
+            if "?" in domain:
+                domain = domain[: domain.find("?")]
+            if domain and not is_ip(domain) and _HOSTNAME_REGEX.match(domain):
+                domains.add(domain)
 
     return urls, domains
 
