@@ -116,3 +116,31 @@ def test_get_email_encodes_message_id_with_special_characters(mocker):
 
     called_endpoint = helper.make_rest_call_helper.call_args_list[0].args[0]
     assert called_endpoint == "/users/user@example.com/messages/msg%2F1%2B2%3D"
+
+
+def test_get_email_downloads_eml_and_saves_to_vault(mocker):
+    soar = Mock()
+    soar.get_executing_container_id.return_value = 9
+    soar.vault.create_attachment.return_value = "vault-id-eml"
+
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [
+        {"id": "msg-1", "hasAttachments": False},
+        b"raw eml bytes",
+    ]
+    mocker.patch("src.actions.get_email.MsGraphHelper", return_value=helper)
+
+    params = Mock(
+        id="msg-1",
+        email_address="user@example.com",
+        get_headers=False,
+        download_attachments=False,
+        download_email=True,
+    )
+
+    output = get_email(params, soar, Mock())
+
+    soar.vault.create_attachment.assert_called_once_with(
+        9, b"raw eml bytes", "msg-1.eml"
+    )
+    assert output.eml_vault_id == "vault-id-eml"

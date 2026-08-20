@@ -66,6 +66,7 @@ class GetEmailOutput(ActionOutput):
     internetMessageHeaders: str | None = None
     attachments: str | None = None
     event_id: str | None = None
+    eml_vault_id: str | None = None
 
 
 COMPLEX_EMAIL_FIELDS = [
@@ -181,6 +182,7 @@ def render_get_email(output: list[GetEmailOutput]) -> dict:
                 "has_attachments": item.hasAttachments,
                 "internet_message_id": item.internetMessageId,
                 "event_id": item.event_id,
+                "eml_vault_id": item.eml_vault_id,
             }
         ]
 
@@ -224,6 +226,22 @@ def get_email(
         resp["attachments"] = _save_attachments_to_vault(
             attach_resp.get("value", []), soar
         )
+
+    if params.download_email:
+        try:
+            eml_content = helper.make_rest_call_helper(
+                f"{endpoint}/$value", download=True
+            )
+            if eml_content:
+                if isinstance(eml_content, str):
+                    eml_content = eml_content.encode("utf-8")
+                resp["eml_vault_id"] = soar.vault.create_attachment(
+                    soar.get_executing_container_id(),
+                    eml_content,
+                    f"{params.id}.eml",
+                )
+        except Exception as e:
+            logger.warning(f"Failed to download email as EML: {e}")
 
     resp["from_field"] = resp.pop("from", None)
     resp["event_id"] = (

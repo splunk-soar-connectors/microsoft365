@@ -1,3 +1,4 @@
 **Unreleased**
 
 * Encoded Microsoft Graph message, folder, and attachment IDs before using them in request paths.
+* Implemented the `download_email` option in `get email`, saving the message as an EML file to the Vault.
