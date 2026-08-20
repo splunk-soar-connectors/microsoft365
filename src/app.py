@@ -710,12 +710,85 @@ def on_poll(
                                         f"Failed to save attachment to vault: {e}"
                                     )
 
-                        # Handle itemAttachment (embedded emails) - ingest_eml feature
-                        elif (
-                            att_type == "#microsoft.graph.itemAttachment"
-                            and asset.ingest_eml
-                        ):
+                        # Handle itemAttachment (embedded/nested emails)
+                        elif att_type == "#microsoft.graph.itemAttachment":
                             att_id = att.get("id")
+
+                            # Nested email content is expanded and surfaced as its own
+                            # Email Artifact regardless of the ingest_eml setting. A bare
+                            # $expand is used since Graph rejects a nested $select on the
+                            # itemAttachment/item cast segment.
+                            try:
+                                expand_resp = helper.make_rest_call_helper(
+                                    f"/users/{email_address}/messages/{encode_path_segment(email_id)}"
+                                    f"/attachments/{encode_path_segment(att_id)}"
+                                    "?$expand=microsoft.graph.itemAttachment/item"
+                                )
+                                sub_email = expand_resp.get("item") or {}
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to expand nested email attachment {att_id}: {e}"
+                                )
+                                sub_email = {}
+
+                            if sub_email:
+                                sub_cef, sub_cef_types = _email_artifact_cef(sub_email)
+                                yield Artifact(
+                                    name="Email Artifact",
+                                    label="email",
+                                    cef=sub_cef,
+                                    cef_types=sub_cef_types,
+                                )
+                                sub_body = sub_email.get("body", {}).get(
+                                    "content", ""
+                                ) or sub_email.get("bodyPreview", "")
+
+                                if asset.extract_urls or asset.extract_domains:
+                                    sub_urls, sub_domains = _extract_urls_domains(
+                                        sub_body,
+                                        asset.extract_urls,
+                                        asset.extract_domains,
+                                    )
+                                    for url in sub_urls:
+                                        yield Artifact(
+                                            name="URL Artifact",
+                                            label="url",
+                                            cef={"requestURL": url},
+                                            cef_types={"requestURL": ["url"]},
+                                        )
+                                    for domain in sub_domains:
+                                        yield Artifact(
+                                            name="Domain Artifact",
+                                            label="domain",
+                                            cef={"destinationDnsDomain": domain},
+                                            cef_types={
+                                                "destinationDnsDomain": ["domain"]
+                                            },
+                                        )
+
+                                if asset.extract_ips:
+                                    sub_ips = _extract_ips(sub_body)
+                                    for ip in sub_ips:
+                                        yield Artifact(
+                                            name="IP Artifact",
+                                            label="ip",
+                                            cef={"destinationAddress": ip},
+                                            cef_types={"destinationAddress": ["ip"]},
+                                        )
+
+                                if asset.extract_hashes:
+                                    sub_hashes = _extract_hashes(sub_body)
+                                    for file_hash in sub_hashes:
+                                        yield Artifact(
+                                            name="Hash Artifact",
+                                            label="hash",
+                                            cef={"fileHash": file_hash},
+                                            cef_types={"fileHash": ["hash"]},
+                                        )
+
+                            if not asset.ingest_eml:
+                                continue
+
                             try:
                                 eml_content = helper.make_rest_call_helper(
                                     f"/users/{email_address}/messages/{encode_path_segment(email_id)}/attachments/{encode_path_segment(att_id)}/$value",
