@@ -5,3 +5,4 @@
 * Added recipients, sender, and headers to the `on poll` email artifact.
 * Surfaced nested email attachments as their own Email Artifact in `get email` and `on poll`, independent of the EML download setting.
 * Extracted domains from `mailto:` links and scheme-less URLs during `on poll` domain extraction.
+* Extracted URL, domain, IP, and hash indicators from nested email attachments during `on poll`.

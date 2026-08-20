@@ -525,6 +525,46 @@ def handle_oauth_result(request: WebhookRequest[Asset]) -> WebhookResponse:
     )
 
 
+def _extract_indicator_artifacts(body: str, asset: Asset) -> Iterator[Artifact]:
+    """Yield URL, Domain, IP, and Hash artifacts extracted from an email body."""
+    if asset.extract_urls or asset.extract_domains:
+        urls, domains = _extract_urls_domains(
+            body, asset.extract_urls, asset.extract_domains
+        )
+        for url in urls:
+            yield Artifact(
+                name="URL Artifact",
+                label="url",
+                cef={"requestURL": url},
+                cef_types={"requestURL": ["url"]},
+            )
+        for domain in domains:
+            yield Artifact(
+                name="Domain Artifact",
+                label="domain",
+                cef={"destinationDnsDomain": domain},
+                cef_types={"destinationDnsDomain": ["domain"]},
+            )
+
+    if asset.extract_ips:
+        for ip in _extract_ips(body):
+            yield Artifact(
+                name="IP Artifact",
+                label="ip",
+                cef={"destinationAddress": ip},
+                cef_types={"destinationAddress": ["ip"]},
+            )
+
+    if asset.extract_hashes:
+        for file_hash in _extract_hashes(body):
+            yield Artifact(
+                name="Hash Artifact",
+                label="hash",
+                cef={"fileHash": file_hash},
+                cef_types={"fileHash": ["hash"]},
+            )
+
+
 @app.on_poll()
 def on_poll(
     params: OnPollParams, soar: SOARClient, asset: Asset
@@ -616,45 +656,7 @@ def on_poll(
             body = email_data.get("body", {}).get("content", "") or email_data.get(
                 "bodyPreview", ""
             )
-
-            if asset.extract_urls or asset.extract_domains:
-                urls, domains = _extract_urls_domains(
-                    body, asset.extract_urls, asset.extract_domains
-                )
-                for url in urls:
-                    yield Artifact(
-                        name="URL Artifact",
-                        label="url",
-                        cef={"requestURL": url},
-                        cef_types={"requestURL": ["url"]},
-                    )
-                for domain in domains:
-                    yield Artifact(
-                        name="Domain Artifact",
-                        label="domain",
-                        cef={"destinationDnsDomain": domain},
-                        cef_types={"destinationDnsDomain": ["domain"]},
-                    )
-
-            if asset.extract_ips:
-                ips = _extract_ips(body)
-                for ip in ips:
-                    yield Artifact(
-                        name="IP Artifact",
-                        label="ip",
-                        cef={"destinationAddress": ip},
-                        cef_types={"destinationAddress": ["ip"]},
-                    )
-
-            if asset.extract_hashes:
-                hashes = _extract_hashes(body)
-                for file_hash in hashes:
-                    yield Artifact(
-                        name="Hash Artifact",
-                        label="hash",
-                        cef={"fileHash": file_hash},
-                        cef_types={"fileHash": ["hash"]},
-                    )
+            yield from _extract_indicator_artifacts(body, asset)
 
             # extract_eml: Save the root email as EML file to vault
             if asset.extract_eml:
@@ -763,49 +765,7 @@ def on_poll(
                                 sub_body = sub_email.get("body", {}).get(
                                     "content", ""
                                 ) or sub_email.get("bodyPreview", "")
-
-                                if asset.extract_urls or asset.extract_domains:
-                                    sub_urls, sub_domains = _extract_urls_domains(
-                                        sub_body,
-                                        asset.extract_urls,
-                                        asset.extract_domains,
-                                    )
-                                    for url in sub_urls:
-                                        yield Artifact(
-                                            name="URL Artifact",
-                                            label="url",
-                                            cef={"requestURL": url},
-                                            cef_types={"requestURL": ["url"]},
-                                        )
-                                    for domain in sub_domains:
-                                        yield Artifact(
-                                            name="Domain Artifact",
-                                            label="domain",
-                                            cef={"destinationDnsDomain": domain},
-                                            cef_types={
-                                                "destinationDnsDomain": ["domain"]
-                                            },
-                                        )
-
-                                if asset.extract_ips:
-                                    sub_ips = _extract_ips(sub_body)
-                                    for ip in sub_ips:
-                                        yield Artifact(
-                                            name="IP Artifact",
-                                            label="ip",
-                                            cef={"destinationAddress": ip},
-                                            cef_types={"destinationAddress": ["ip"]},
-                                        )
-
-                                if asset.extract_hashes:
-                                    sub_hashes = _extract_hashes(sub_body)
-                                    for file_hash in sub_hashes:
-                                        yield Artifact(
-                                            name="Hash Artifact",
-                                            label="hash",
-                                            cef={"fileHash": file_hash},
-                                            cef_types={"fileHash": ["hash"]},
-                                        )
+                                yield from _extract_indicator_artifacts(sub_body, asset)
 
                             if not asset.ingest_eml:
                                 continue
