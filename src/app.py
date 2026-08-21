@@ -17,6 +17,9 @@ import re
 import time
 from collections.abc import Generator, Iterator
 from datetime import UTC, datetime
+from email import policy
+from email.message import Message
+from email.parser import BytesParser
 from email.utils import parseaddr, parsedate_to_datetime
 from html import unescape
 
@@ -361,6 +364,12 @@ class Asset(BaseAsset):
         description="Extract root (primary) email as Vault",
         default=False,
         category=FieldCategory.INGEST,
+    )
+    unwrap_jmr_reported_message: bool = AssetField(
+        required=False,
+        description="Unwrap Microsoft JMR reported messages for Enterprise Security",
+        default=False,
+        category=FieldCategory.CONNECTIVITY,
     )
 
 
@@ -852,7 +861,7 @@ def _extract_inner_email(
     for att in outer_parsed.attachments:
         if not att.content:
             continue
-        lower_name = att.filename.lower()
+        lower_name = (att.filename or "").lower()
         if not (lower_name.endswith(".eml") or lower_name.endswith(".msg")):
             continue
 
@@ -882,13 +891,78 @@ def _extract_inner_email(
     return None
 
 
+def _is_jmr_wrapper(message: Message) -> bool:
+    """Return whether the outer MIME message is a Microsoft JMR wrapper."""
+    message_id = message.get("Message-ID", "").strip().lstrip("<")
+    return message_id.lower().startswith("jmr.")
+
+
+def _is_jmr_wrapper_raw_email(raw_eml: str | bytes) -> bool:
+    """Return whether raw EML content is a Microsoft JMR wrapper."""
+    raw_bytes = raw_eml.encode("utf-8") if isinstance(raw_eml, str) else raw_eml
+    return _is_jmr_wrapper(BytesParser(policy=policy.default).parsebytes(raw_bytes))
+
+
+def _extract_jmr_inner_email(
+    raw_eml: str | bytes, outer_parsed: EmailData, email_id: str | None
+) -> tuple[EmailData, FindingEmailReporter, bytes] | None:
+    """Extract the direct RFC 822 child of a Microsoft JMR wrapper."""
+    raw_bytes = raw_eml.encode("utf-8") if isinstance(raw_eml, str) else raw_eml
+    outer_mime = BytesParser(policy=policy.default).parsebytes(raw_bytes)
+    if not _is_jmr_wrapper(outer_mime) or not outer_mime.is_multipart():
+        return None
+
+    for part in outer_mime.iter_parts():
+        if (
+            part.get_content_type() != "message/rfc822"
+            or part.get_content_disposition() != "attachment"
+        ):
+            continue
+
+        payload = part.get_payload()
+        if not isinstance(payload, list) or len(payload) != 1:
+            logger.warning("JMR wrapper contains an invalid message/rfc822 attachment")
+            return None
+
+        inner_message = payload[0]
+        if not isinstance(inner_message, Message):
+            logger.warning("JMR wrapper contains a non-message/rfc822 attachment")
+            return None
+
+        inner_raw = inner_message.as_bytes(policy=policy.default)
+        try:
+            inner_parsed = extract_email_data(
+                inner_raw, email_id, include_attachment_content=True
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to parse JMR embedded email: {exc}")
+            return None
+
+        outer_headers = outer_parsed.headers
+        body_text = outer_parsed.body.plain_text or outer_parsed.body.html or ""
+        reporter = FindingEmailReporter(
+            from_=_extract_address(outer_headers.from_address),
+            to=_extract_address(outer_headers.to),
+            cc=_extract_address(outer_headers.cc),
+            bcc=_extract_address(outer_headers.bcc),
+            subject=outer_headers.subject,
+            message_id=outer_headers.message_id,
+            id=email_id,
+            body=body_text,
+            date=outer_headers.date,
+        )
+        return inner_parsed, reporter, inner_raw
+
+    return None
+
+
 def _merge_email_urls(inner_urls: list[str], outer_urls: list[str]) -> list[str]:
     """Preserve ordered URL evidence from both a reported email and its wrapper."""
     return list(dict.fromkeys([*inner_urls, *outer_urls]))
 
 
-def _is_embedded_email_attachment(filename: str) -> bool:
-    return filename.lower().endswith((".eml", ".msg"))
+def _is_embedded_email_attachment(filename: str | None) -> bool:
+    return (filename or "").lower().endswith((".eml", ".msg"))
 
 
 @app.on_es_poll()
@@ -1008,16 +1082,39 @@ def on_es_poll(
 
                         reporter = None
                         outer_parsed = parsed
-                        inner = _extract_inner_email(outer_parsed, email_id)
+                        jmr_inner = None
+                        is_jmr_wrapper = _is_jmr_wrapper_raw_email(raw_eml)
+                        if is_jmr_wrapper and getattr(
+                            asset, "unwrap_jmr_reported_message", False
+                        ):
+                            jmr_inner = _extract_jmr_inner_email(
+                                raw_eml, outer_parsed, email_id
+                            )
+                        inner = (
+                            jmr_inner[:2]
+                            if jmr_inner is not None
+                            else (
+                                None
+                                if is_jmr_wrapper
+                                else _extract_inner_email(outer_parsed, email_id)
+                            )
+                        )
                         if inner is not None:
                             parsed, reporter = inner
                             outer_attachments = attachments
+                            inner_raw = (
+                                jmr_inner[2]
+                                if jmr_inner is not None
+                                else (
+                                    parsed.raw_email.encode("utf-8")
+                                    if isinstance(parsed.raw_email, str)
+                                    else parsed.raw_email
+                                )
+                            )
                             attachments = [
                                 FindingAttachment(
                                     file_name=f"{parsed.headers.subject or subject[:50]}.eml",
-                                    data=parsed.raw_email.encode("utf-8")
-                                    if isinstance(parsed.raw_email, str)
-                                    else parsed.raw_email,
+                                    data=inner_raw,
                                     is_raw_email=True,
                                 )
                             ]
@@ -1070,8 +1167,10 @@ def on_es_poll(
                                 )
                         if reporter:
                             for att in outer_parsed.attachments:
-                                if att.content and not _is_embedded_email_attachment(
-                                    att.filename
+                                if (
+                                    att.content
+                                    and not _is_embedded_email_attachment(att.filename)
+                                    and att.content != inner_raw
                                 ):
                                     attachments.append(
                                         FindingAttachment(
