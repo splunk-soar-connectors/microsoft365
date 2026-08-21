@@ -1363,6 +1363,7 @@ action_result.data.\*.internetMessageId | string | | |
 action_result.data.\*.internetMessageHeaders | string | | |
 action_result.data.\*.attachments | string | | |
 action_result.data.\*.event_id | string | | |
+action_result.data.\*.eml_vault_id | string | | |
 summary.total_objects | numeric | | 1 |
 summary.total_objects_successful | numeric | | 1 |
 

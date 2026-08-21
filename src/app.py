@@ -57,10 +57,15 @@ from .consts import (
     MSGOFFICE365_PER_PAGE_COUNT,
     MSGOFFICE365_SELECT_PARAMETER_LIST,
 )
-from .helper import GraphPaginationState, MsGraphHelper
+from .helper import GraphPaginationState, MsGraphHelper, encode_path_segment
 
 
 logger = getLogger()
+
+_HOSTNAME_REGEX = re.compile(
+    r"^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
+    r"(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$"
+)
 
 APP_ID = "cdcb0c71-162d-4fd5-8098-d6d93f36e90d"
 APP_NAME = "Microsoft 365"
@@ -81,6 +86,64 @@ def _poll_orderby(
     )
 
 
+def _recipient_addresses(recipients: list[dict] | None) -> list[str]:
+    """Extract email addresses from a Graph recipient list (toRecipients/ccRecipients/etc)."""
+    if not recipients:
+        return []
+    return [
+        address
+        for r in recipients
+        if (address := r.get("emailAddress", {}).get("address"))
+    ]
+
+
+def _flatten_message_headers(headers: list[dict] | None) -> dict[str, str]:
+    """Flatten Graph's internetMessageHeaders list into a single name->value dict."""
+    if not headers:
+        return {}
+    return {h["name"]: h["value"] for h in headers if h.get("name") and h.get("value")}
+
+
+def _email_artifact_cef(
+    email_data: dict, message_id: str | None = None
+) -> tuple[dict, dict]:
+    """Build the Email Artifact cef/cef_types pair from a Graph message resource."""
+    to_addresses = _recipient_addresses(email_data.get("toRecipients"))
+    cc_addresses = _recipient_addresses(email_data.get("ccRecipients"))
+    bcc_addresses = _recipient_addresses(email_data.get("bccRecipients"))
+    cef = {
+        "messageId": message_id or email_data.get("id"),
+        "subject": email_data.get("subject"),
+        "fromEmail": email_data.get("from", {}).get("emailAddress", {}).get("address"),
+        "toEmail": to_addresses[0] if to_addresses else None,
+        "toRecipients": to_addresses,
+        "ccRecipients": cc_addresses,
+        "bccRecipients": bcc_addresses,
+        "senderEmail": email_data.get("sender", {})
+        .get("emailAddress", {})
+        .get("address"),
+        "receivedDateTime": email_data.get("receivedDateTime"),
+        "sentDateTime": email_data.get("sentDateTime"),
+        "bodyPreview": email_data.get("bodyPreview"),
+        "importance": email_data.get("importance"),
+        "isRead": email_data.get("isRead"),
+        "internetMessageId": email_data.get("internetMessageId"),
+        "internetMessageHeaders": _flatten_message_headers(
+            email_data.get("internetMessageHeaders")
+        ),
+    }
+    cef_types = {
+        "messageId": ["msgoffice365 message id"],
+        "fromEmail": ["email"],
+        "toEmail": ["email"],
+        "toRecipients": ["email"],
+        "ccRecipients": ["email"],
+        "bccRecipients": ["email"],
+        "senderEmail": ["email"],
+    }
+    return cef, cef_types
+
+
 def _extract_urls_domains(
     body: str, extract_urls: bool, extract_domains: bool
 ) -> tuple[set[str], set[str]]:
@@ -98,10 +161,14 @@ def _extract_urls_domains(
         return urls, domains
 
     uris = []
+    mailto_hrefs: list[str] = []
     for link in soup.find_all(href=True):
         uris.append(clean_url(link.get_text()))
-        if not link["href"].startswith("mailto:"):
-            uris.append(link["href"])
+        href = str(link["href"])
+        if href.startswith("mailto:"):
+            mailto_hrefs.append(href)
+        else:
+            uris.append(href)
 
     for src in soup.find_all(src=True):
         uris.append(clean_url(src.get_text()))
@@ -118,11 +185,23 @@ def _extract_urls_domains(
             try:
                 from urllib.parse import urlparse
 
-                parsed = urlparse(uri)
-                if parsed.netloc:
-                    domains.add(parsed.netloc.split(":")[0])
+                # Uris pulled from raw href/src attributes are not guaranteed to have
+                # a scheme, in which case urlparse treats the whole value as a path.
+                has_authority = "://" in uri or uri.startswith("//")
+                parsed = urlparse(uri if has_authority else f"//{uri}")
+                domain = parsed.netloc.split(":")[0]
+                if domain and not is_ip(domain) and _HOSTNAME_REGEX.match(domain):
+                    domains.add(domain)
             except Exception:
                 pass
+
+    if extract_domains:
+        for mailto_href in mailto_hrefs:
+            domain = mailto_href[mailto_href.find("@") + 1 :]
+            if "?" in domain:
+                domain = domain[: domain.find("?")]
+            if domain and not is_ip(domain) and _HOSTNAME_REGEX.match(domain):
+                domains.add(domain)
 
     return urls, domains
 
@@ -446,6 +525,46 @@ def handle_oauth_result(request: WebhookRequest[Asset]) -> WebhookResponse:
     )
 
 
+def _extract_indicator_artifacts(body: str, asset: Asset) -> Iterator[Artifact]:
+    """Yield URL, Domain, IP, and Hash artifacts extracted from an email body."""
+    if asset.extract_urls or asset.extract_domains:
+        urls, domains = _extract_urls_domains(
+            body, asset.extract_urls, asset.extract_domains
+        )
+        for url in urls:
+            yield Artifact(
+                name="URL Artifact",
+                label="url",
+                cef={"requestURL": url},
+                cef_types={"requestURL": ["url"]},
+            )
+        for domain in domains:
+            yield Artifact(
+                name="Domain Artifact",
+                label="domain",
+                cef={"destinationDnsDomain": domain},
+                cef_types={"destinationDnsDomain": ["domain"]},
+            )
+
+    if asset.extract_ips:
+        for ip in _extract_ips(body):
+            yield Artifact(
+                name="IP Artifact",
+                label="ip",
+                cef={"destinationAddress": ip},
+                cef_types={"destinationAddress": ["ip"]},
+            )
+
+    if asset.extract_hashes:
+        for file_hash in _extract_hashes(body):
+            yield Artifact(
+                name="Hash Artifact",
+                label="hash",
+                cef={"fileHash": file_hash},
+                cef_types={"fileHash": ["hash"]},
+            )
+
+
 @app.on_poll()
 def on_poll(
     params: OnPollParams, soar: SOARClient, asset: Asset
@@ -476,7 +595,9 @@ def on_poll(
         )
         last_time = state.get("last_time")
 
-    endpoint = f"/users/{email_address}/mailFolders/{folder_id}/messages"
+    endpoint = (
+        f"/users/{email_address}/mailFolders/{encode_path_segment(folder_id)}/messages"
+    )
     select_fields = ",".join(MSGOFFICE365_SELECT_PARAMETER_LIST)
     api_params = {
         "$select": select_fields,
@@ -526,73 +647,22 @@ def on_poll(
             )
             yield container
 
+            cef, cef_types = _email_artifact_cef(email_data, email_id)
             artifact = Artifact(
-                name="Email Artifact",
-                label="email",
-                cef={
-                    "messageId": email_id,
-                    "subject": email_data.get("subject"),
-                    "fromEmail": email_data.get("from", {})
-                    .get("emailAddress", {})
-                    .get("address"),
-                    "receivedDateTime": email_data.get("receivedDateTime"),
-                    "bodyPreview": email_data.get("bodyPreview"),
-                },
-                cef_types={
-                    "messageId": ["msgoffice365 message id"],
-                    "fromEmail": ["email"],
-                },
+                name="Email Artifact", label="email", cef=cef, cef_types=cef_types
             )
             yield artifact
 
             body = email_data.get("body", {}).get("content", "") or email_data.get(
                 "bodyPreview", ""
             )
-
-            if asset.extract_urls or asset.extract_domains:
-                urls, domains = _extract_urls_domains(
-                    body, asset.extract_urls, asset.extract_domains
-                )
-                for url in urls:
-                    yield Artifact(
-                        name="URL Artifact",
-                        label="url",
-                        cef={"requestURL": url},
-                        cef_types={"requestURL": ["url"]},
-                    )
-                for domain in domains:
-                    yield Artifact(
-                        name="Domain Artifact",
-                        label="domain",
-                        cef={"destinationDnsDomain": domain},
-                        cef_types={"destinationDnsDomain": ["domain"]},
-                    )
-
-            if asset.extract_ips:
-                ips = _extract_ips(body)
-                for ip in ips:
-                    yield Artifact(
-                        name="IP Artifact",
-                        label="ip",
-                        cef={"destinationAddress": ip},
-                        cef_types={"destinationAddress": ["ip"]},
-                    )
-
-            if asset.extract_hashes:
-                hashes = _extract_hashes(body)
-                for file_hash in hashes:
-                    yield Artifact(
-                        name="Hash Artifact",
-                        label="hash",
-                        cef={"fileHash": file_hash},
-                        cef_types={"fileHash": ["hash"]},
-                    )
+            yield from _extract_indicator_artifacts(body, asset)
 
             # extract_eml: Save the root email as EML file to vault
             if asset.extract_eml:
                 try:
                     eml_content = helper.make_rest_call_helper(
-                        f"/users/{email_address}/messages/{email_id}/$value",
+                        f"/users/{email_address}/messages/{encode_path_segment(email_id)}/$value",
                         download=True,
                     )
                     if eml_content:
@@ -626,7 +696,7 @@ def on_poll(
             if asset.extract_attachments and email_data.get("hasAttachments"):
                 try:
                     attachments_resp = helper.make_rest_call_helper(
-                        f"/users/{email_address}/messages/{email_id}/attachments"
+                        f"/users/{email_address}/messages/{encode_path_segment(email_id)}/attachments"
                     )
                     for att in attachments_resp.get("value", []):
                         att_type = att.get("@odata.type")
@@ -663,15 +733,46 @@ def on_poll(
                                         f"Failed to save attachment to vault: {e}"
                                     )
 
-                        # Handle itemAttachment (embedded emails) - ingest_eml feature
-                        elif (
-                            att_type == "#microsoft.graph.itemAttachment"
-                            and asset.ingest_eml
-                        ):
+                        # Handle itemAttachment (embedded/nested emails)
+                        elif att_type == "#microsoft.graph.itemAttachment":
                             att_id = att.get("id")
+
+                            # Nested email content is expanded and surfaced as its own
+                            # Email Artifact regardless of the ingest_eml setting. A bare
+                            # $expand is used since Graph rejects a nested $select on the
+                            # itemAttachment/item cast segment.
+                            try:
+                                expand_resp = helper.make_rest_call_helper(
+                                    f"/users/{email_address}/messages/{encode_path_segment(email_id)}"
+                                    f"/attachments/{encode_path_segment(att_id)}"
+                                    "?$expand=microsoft.graph.itemAttachment/item"
+                                )
+                                sub_email = expand_resp.get("item") or {}
+                            except Exception as e:
+                                logger.warning(
+                                    f"Failed to expand nested email attachment {att_id}: {e}"
+                                )
+                                sub_email = {}
+
+                            if sub_email:
+                                sub_cef, sub_cef_types = _email_artifact_cef(sub_email)
+                                yield Artifact(
+                                    name="Email Artifact",
+                                    label="email",
+                                    cef=sub_cef,
+                                    cef_types=sub_cef_types,
+                                )
+                                sub_body = sub_email.get("body", {}).get(
+                                    "content", ""
+                                ) or sub_email.get("bodyPreview", "")
+                                yield from _extract_indicator_artifacts(sub_body, asset)
+
+                            if not asset.ingest_eml:
+                                continue
+
                             try:
                                 eml_content = helper.make_rest_call_helper(
-                                    f"/users/{email_address}/messages/{email_id}/attachments/{att_id}/$value",
+                                    f"/users/{email_address}/messages/{encode_path_segment(email_id)}/attachments/{encode_path_segment(att_id)}/$value",
                                     download=True,
                                 )
                                 if eml_content:
@@ -814,7 +915,9 @@ def on_es_poll(
     last_time = state.get("es_last_time")
     boundary_ids = set(state.get("es_boundary_ids", []))
 
-    endpoint = f"/users/{email_address}/mailFolders/{folder_id}/messages"
+    endpoint = (
+        f"/users/{email_address}/mailFolders/{encode_path_segment(folder_id)}/messages"
+    )
     select_fields = ",".join(MSGOFFICE365_SELECT_PARAMETER_LIST)
     api_params = {
         "$select": select_fields,
@@ -870,7 +973,7 @@ def on_es_poll(
 
             try:
                 eml_content = helper.make_rest_call_helper(
-                    f"/users/{email_address}/messages/{email_id}/$value",
+                    f"/users/{email_address}/messages/{encode_path_segment(email_id)}/$value",
                     download=True,
                 )
                 if eml_content:

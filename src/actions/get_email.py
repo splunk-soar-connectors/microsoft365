@@ -12,7 +12,7 @@ from soar_sdk.params import Param, Params
 
 if TYPE_CHECKING:
     from ..app import Asset
-from ..helper import MsGraphHelper, serialize_complex_fields
+from ..helper import MsGraphHelper, encode_path_segment, serialize_complex_fields
 
 
 logger = getLogger()
@@ -66,6 +66,7 @@ class GetEmailOutput(ActionOutput):
     internetMessageHeaders: str | None = None
     attachments: str | None = None
     event_id: str | None = None
+    eml_vault_id: str | None = None
 
 
 COMPLEX_EMAIL_FIELDS = [
@@ -136,29 +137,59 @@ def _extract_recipient_addresses(json_str):
     ]
 
 
-def _save_attachments_to_vault(attachments: list[dict], soar: SOARClient) -> list[dict]:
-    file_attachments = [
-        att
-        for att in attachments
-        if att.get("@odata.type") == "#microsoft.graph.fileAttachment"
-    ]
-    if not file_attachments:
+def _save_attachments_to_vault(
+    attachments: list[dict],
+    soar: SOARClient,
+    helper: "MsGraphHelper | None" = None,
+    message_endpoint: str | None = None,
+) -> list[dict]:
+    def _is_actionable(att: dict) -> bool:
+        att_type = att.get("@odata.type")
+        if att_type == "#microsoft.graph.fileAttachment":
+            return True
+        if att_type == "#microsoft.graph.itemAttachment":
+            return helper is not None and message_endpoint is not None
+        return False
+
+    vaultable = [att for att in attachments if _is_actionable(att)]
+    if not vaultable:
         return attachments
 
     container_id = soar.get_executing_container_id()
-    for att in file_attachments:
-        content_bytes = att.pop("contentBytes", None)
-        if not content_bytes:
-            continue
-        try:
-            file_content = base64.b64decode(content_bytes)
-            att["vaultId"] = soar.vault.create_attachment(
-                container_id, file_content, att.get("name", "attachment")
-            )
-        except Exception as e:
-            logger.warning(
-                f"Failed to add attachment '{att.get('name')}' to vault: {e}"
-            )
+    for att in vaultable:
+        att_type = att.get("@odata.type")
+        if att_type == "#microsoft.graph.fileAttachment":
+            content_bytes = att.pop("contentBytes", None)
+            if not content_bytes:
+                continue
+            try:
+                file_content = base64.b64decode(content_bytes)
+                att["vaultId"] = soar.vault.create_attachment(
+                    container_id, file_content, att.get("name", "attachment")
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to add attachment '{att.get('name')}' to vault: {e}"
+                )
+        elif helper is not None and message_endpoint is not None:
+            att_id = att.get("id", "")
+            try:
+                eml_content = helper.make_rest_call_helper(
+                    f"{message_endpoint}/attachments/{encode_path_segment(att_id)}/$value",
+                    download=True,
+                )
+                if not eml_content:
+                    continue
+                if isinstance(eml_content, str):
+                    eml_content = eml_content.encode("utf-8")
+                file_name = f"{att.get('name', 'embedded_email')}.eml"
+                att["vaultId"] = soar.vault.create_attachment(
+                    container_id, eml_content, file_name
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to add item attachment '{att.get('name')}' to vault: {e}"
+                )
     return attachments
 
 
@@ -181,6 +212,7 @@ def render_get_email(output: list[GetEmailOutput]) -> dict:
                 "has_attachments": item.hasAttachments,
                 "internet_message_id": item.internetMessageId,
                 "event_id": item.event_id,
+                "eml_vault_id": item.eml_vault_id,
             }
         ]
 
@@ -205,7 +237,9 @@ def get_email(
     helper = MsGraphHelper(soar, asset)
     helper.get_token()
 
-    endpoint = f"/users/{params.email_address}/messages/{params.id}"
+    endpoint = (
+        f"/users/{params.email_address}/messages/{encode_path_segment(params.id)}"
+    )
     resp = helper.make_rest_call_helper(endpoint)
 
     if params.get_headers:
@@ -220,8 +254,24 @@ def get_email(
         attach_endpoint = f"{endpoint}/attachments"
         attach_resp = helper.make_rest_call_helper(attach_endpoint)
         resp["attachments"] = _save_attachments_to_vault(
-            attach_resp.get("value", []), soar
+            attach_resp.get("value", []), soar, helper, endpoint
         )
+
+    if params.download_email:
+        try:
+            eml_content = helper.make_rest_call_helper(
+                f"{endpoint}/$value", download=True
+            )
+            if eml_content:
+                if isinstance(eml_content, str):
+                    eml_content = eml_content.encode("utf-8")
+                resp["eml_vault_id"] = soar.vault.create_attachment(
+                    soar.get_executing_container_id(),
+                    eml_content,
+                    f"{params.id}.eml",
+                )
+        except Exception as e:
+            logger.warning(f"Failed to download email as EML: {e}")
 
     resp["from_field"] = resp.pop("from", None)
     resp["event_id"] = (

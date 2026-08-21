@@ -160,3 +160,234 @@ def test_on_poll_extract_eml_adds_root_email_to_vault_using_container_id(mocker)
     ]
     assert len(vault_artifacts) == 1
     assert vault_artifacts[0].cef["vaultId"] == "vault-id-eml"
+
+
+def test_on_poll_encodes_message_id_when_fetching_eml(mocker):
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [
+        {"value": [_email("one/two+three=", "2026-07-16T01:00:00Z")]},
+        b"raw eml bytes",
+    ]
+    mocker.patch.object(app_module, "MsGraphHelper", return_value=helper)
+
+    params = Mock(container_count=4294967295)
+    params.is_manual_poll.return_value = False
+    asset = _asset(extract_eml=True)
+
+    list(app_module.on_poll.__wrapped__(params, Mock(), asset))
+
+    eml_endpoint = helper.make_rest_call_helper.call_args_list[1].args[0]
+    assert eml_endpoint == (
+        "/users/mailbox@example.com/messages/one%2Ftwo%2Bthree%3D/$value"
+    )
+
+
+def test_on_poll_email_artifact_includes_full_field_set(mocker):
+    email_data = {
+        "id": "msg-1",
+        "subject": "Test",
+        "receivedDateTime": "2026-07-16T01:00:00Z",
+        "sentDateTime": "2026-07-16T00:59:00Z",
+        "lastModifiedDateTime": "2026-07-16T01:00:00Z",
+        "from": {"emailAddress": {"address": "sender@example.com"}},
+        "sender": {"emailAddress": {"address": "sender@example.com"}},
+        "toRecipients": [{"emailAddress": {"address": "to@example.com"}}],
+        "ccRecipients": [{"emailAddress": {"address": "cc@example.com"}}],
+        "bccRecipients": [{"emailAddress": {"address": "bcc@example.com"}}],
+        "body": {"content": ""},
+        "bodyPreview": "preview",
+        "hasAttachments": False,
+        "importance": "high",
+        "isRead": True,
+        "internetMessageId": "<abc@example.com>",
+        "internetMessageHeaders": [{"name": "X-Custom", "value": "1"}],
+    }
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [{"value": [email_data]}]
+    mocker.patch.object(app_module, "MsGraphHelper", return_value=helper)
+
+    params = Mock(container_count=4294967295)
+    params.is_manual_poll.return_value = False
+    asset = _asset()
+
+    output = list(app_module.on_poll.__wrapped__(params, Mock(), asset))
+
+    artifact = next(
+        item for item in output if getattr(item, "name", None) == "Email Artifact"
+    )
+    assert artifact.cef["toEmail"] == "to@example.com"
+    assert artifact.cef["toRecipients"] == ["to@example.com"]
+    assert artifact.cef["ccRecipients"] == ["cc@example.com"]
+    assert artifact.cef["bccRecipients"] == ["bcc@example.com"]
+    assert artifact.cef["senderEmail"] == "sender@example.com"
+    assert artifact.cef["sentDateTime"] == "2026-07-16T00:59:00Z"
+    assert artifact.cef["importance"] == "high"
+    assert artifact.cef["isRead"] is True
+    assert artifact.cef["internetMessageId"] == "<abc@example.com>"
+    assert artifact.cef["internetMessageHeaders"] == {"X-Custom": "1"}
+
+
+def test_on_poll_item_attachment_creates_nested_email_artifact_without_ingest_eml(
+    mocker,
+):
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [
+        {"value": [_email("one", "2026-07-16T01:00:00Z", has_attachments=True)]},
+        {
+            "value": [
+                {
+                    "@odata.type": "#microsoft.graph.itemAttachment",
+                    "id": "att-1",
+                    "name": "Fwd: report",
+                }
+            ]
+        },
+        {
+            "item": {
+                "id": "nested-1",
+                "subject": "Nested subject",
+                "from": {"emailAddress": {"address": "nested@example.com"}},
+            }
+        },
+    ]
+    mocker.patch.object(app_module, "MsGraphHelper", return_value=helper)
+
+    params = Mock(container_count=4294967295)
+    params.is_manual_poll.return_value = False
+    asset = _asset(extract_attachments=True, ingest_eml=False)
+
+    output = list(app_module.on_poll.__wrapped__(params, Mock(), asset))
+
+    assert helper.make_rest_call_helper.call_count == 3
+    expand_endpoint = helper.make_rest_call_helper.call_args_list[2].args[0]
+    assert expand_endpoint.endswith(
+        "/attachments/att-1?$expand=microsoft.graph.itemAttachment/item"
+    )
+
+    email_artifacts = [
+        item for item in output if getattr(item, "name", None) == "Email Artifact"
+    ]
+    assert len(email_artifacts) == 2
+    assert email_artifacts[1].cef["subject"] == "Nested subject"
+    assert email_artifacts[1].cef["fromEmail"] == "nested@example.com"
+
+    vault_artifacts = [
+        item for item in output if getattr(item, "name", None) == "Vault Artifact"
+    ]
+    assert vault_artifacts == []
+
+
+def test_on_poll_item_attachment_extracts_domains_from_nested_body(mocker):
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [
+        {"value": [_email("one", "2026-07-16T01:00:00Z", has_attachments=True)]},
+        {
+            "value": [
+                {
+                    "@odata.type": "#microsoft.graph.itemAttachment",
+                    "id": "att-1",
+                    "name": "Fwd: report",
+                }
+            ]
+        },
+        {
+            "item": {
+                "id": "nested-1",
+                "subject": "Nested subject",
+                "from": {"emailAddress": {"address": "nested@example.com"}},
+                "body": {
+                    "content": (
+                        '<a href="mailto:phish@evil-domain.com">Report Phishing</a>'
+                    )
+                },
+            }
+        },
+    ]
+    mocker.patch.object(app_module, "MsGraphHelper", return_value=helper)
+
+    params = Mock(container_count=4294967295)
+    params.is_manual_poll.return_value = False
+    asset = _asset(extract_attachments=True, ingest_eml=False, extract_domains=True)
+
+    output = list(app_module.on_poll.__wrapped__(params, Mock(), asset))
+
+    domains = {
+        item.cef["destinationDnsDomain"]
+        for item in output
+        if getattr(item, "name", None) == "Domain Artifact"
+    }
+    assert domains == {"evil-domain.com"}
+
+
+def test_on_poll_item_attachment_saves_eml_to_vault_when_ingest_eml_enabled(mocker):
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [
+        {"value": [_email("one", "2026-07-16T01:00:00Z", has_attachments=True)]},
+        {
+            "value": [
+                {
+                    "@odata.type": "#microsoft.graph.itemAttachment",
+                    "id": "att-1",
+                    "name": "Fwd: report",
+                }
+            ]
+        },
+        {
+            "item": {
+                "id": "nested-1",
+                "subject": "Nested subject",
+                "from": {"emailAddress": {"address": "nested@example.com"}},
+            }
+        },
+        b"nested eml bytes",
+    ]
+    mocker.patch.object(app_module, "MsGraphHelper", return_value=helper)
+
+    soar = Mock()
+    soar.vault.create_attachment.return_value = "vault-id-nested"
+
+    params = Mock(container_count=4294967295)
+    params.is_manual_poll.return_value = False
+    asset = _asset(extract_attachments=True, ingest_eml=True)
+
+    output = []
+    for item in app_module.on_poll.__wrapped__(params, soar, asset):
+        if isinstance(item, Container):
+            item.container_id = 66
+        output.append(item)
+
+    soar.vault.create_attachment.assert_called_once_with(
+        66, b"nested eml bytes", "Fwd: report.eml"
+    )
+
+    vault_artifacts = [
+        item for item in output if getattr(item, "name", None) == "Vault Artifact"
+    ]
+    assert len(vault_artifacts) == 1
+    assert vault_artifacts[0].cef["vaultId"] == "vault-id-nested"
+
+
+def test_on_poll_extract_domains_includes_mailto_and_schemeless_links(mocker):
+    email_data = _email("one", "2026-07-16T01:00:00Z")
+    email_data["body"] = {
+        "content": (
+            '<a href="mailto:phish@evil-domain.com">Report Phishing</a>'
+            '<a href="bare-domain.com/path">Bare link</a>'
+        )
+    }
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [{"value": [email_data]}]
+    mocker.patch.object(app_module, "MsGraphHelper", return_value=helper)
+
+    params = Mock(container_count=4294967295)
+    params.is_manual_poll.return_value = False
+    asset = _asset(extract_domains=True)
+
+    output = list(app_module.on_poll.__wrapped__(params, Mock(), asset))
+
+    domains = {
+        item.cef["destinationDnsDomain"]
+        for item in output
+        if getattr(item, "name", None) == "Domain Artifact"
+    }
+    assert domains == {"evil-domain.com", "bare-domain.com"}

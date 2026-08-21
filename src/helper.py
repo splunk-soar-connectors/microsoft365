@@ -14,7 +14,7 @@
 import json
 import time
 from dataclasses import dataclass, field
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import requests
 from soar_sdk.abstract import SOARClient
@@ -47,6 +47,15 @@ def escape_odata_string(value: str) -> str:
 def quote_graph_search_phrase(value: str) -> str:
     """Quote a caller value as one Microsoft Graph search phrase."""
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def encode_path_segment(value: str) -> str:
+    """Percent-encode a value for safe use as a Microsoft Graph URL path segment.
+
+    Graph message/attachment IDs are base64url-derived and can contain '/', '+',
+    and '=', which requests will not encode when embedded directly in a URL path.
+    """
+    return quote(value, safe="")
 
 
 def validate_graph_next_link(next_link: str) -> str:
@@ -320,7 +329,7 @@ class MsGraphHelper:
             if not folder:
                 continue
             if parent_folder_id:
-                endpoint = f"/users/{email_address}/mailFolders/{parent_folder_id}/childFolders"
+                endpoint = f"/users/{email_address}/mailFolders/{encode_path_segment(parent_folder_id)}/childFolders"
             else:
                 endpoint = f"/users/{email_address}/mailFolders"
 

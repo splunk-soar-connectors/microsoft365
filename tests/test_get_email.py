@@ -39,6 +39,35 @@ def test_save_attachments_to_vault_skips_non_file_attachments():
     assert result == attachments
 
 
+def test_save_attachments_to_vault_downloads_item_attachment_as_eml():
+    soar = Mock()
+    soar.get_executing_container_id.return_value = 42
+    soar.vault.create_attachment.return_value = "vault-id-nested"
+    helper = Mock()
+    helper.make_rest_call_helper.return_value = b"nested eml bytes"
+
+    attachments = [
+        {
+            "@odata.type": "#microsoft.graph.itemAttachment",
+            "id": "att-1",
+            "name": "Fwd: report",
+        }
+    ]
+
+    result = _save_attachments_to_vault(
+        attachments, soar, helper, "/users/user@example.com/messages/msg-1"
+    )
+
+    helper.make_rest_call_helper.assert_called_once_with(
+        "/users/user@example.com/messages/msg-1/attachments/att-1/$value",
+        download=True,
+    )
+    soar.vault.create_attachment.assert_called_once_with(
+        42, b"nested eml bytes", "Fwd: report.eml"
+    )
+    assert result[0]["vaultId"] == "vault-id-nested"
+
+
 def test_save_attachments_to_vault_logs_and_continues_on_vault_failure(mocker):
     soar = Mock()
     soar.get_executing_container_id.return_value = 42
@@ -93,3 +122,91 @@ def test_get_email_downloads_attachments_and_returns_vault_id(mocker):
         7, b"attachment payload", "report.pdf"
     )
     assert '"vaultId": "vault-id-abc"' in output.attachments
+
+
+def test_get_email_encodes_message_id_with_special_characters(mocker):
+    soar = Mock()
+    helper = Mock()
+    helper.make_rest_call_helper.return_value = {
+        "id": "msg/1+2=",
+        "hasAttachments": False,
+    }
+    mocker.patch("src.actions.get_email.MsGraphHelper", return_value=helper)
+
+    params = Mock(
+        id="msg/1+2=",
+        email_address="user@example.com",
+        get_headers=False,
+        download_attachments=False,
+        download_email=False,
+    )
+
+    get_email(params, soar, Mock())
+
+    called_endpoint = helper.make_rest_call_helper.call_args_list[0].args[0]
+    assert called_endpoint == "/users/user@example.com/messages/msg%2F1%2B2%3D"
+
+
+def test_get_email_downloads_nested_item_attachment_as_eml(mocker):
+    soar = Mock()
+    soar.get_executing_container_id.return_value = 7
+    soar.vault.create_attachment.return_value = "vault-id-nested"
+
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [
+        {"id": "msg-1", "hasAttachments": True},
+        {
+            "value": [
+                {
+                    "@odata.type": "#microsoft.graph.itemAttachment",
+                    "id": "att-1",
+                    "name": "Fwd: report",
+                }
+            ]
+        },
+        b"nested eml bytes",
+    ]
+    mocker.patch("src.actions.get_email.MsGraphHelper", return_value=helper)
+
+    params = Mock(
+        id="msg-1",
+        email_address="user@example.com",
+        get_headers=False,
+        download_attachments=True,
+        download_email=False,
+    )
+
+    output = get_email(params, soar, Mock())
+
+    soar.vault.create_attachment.assert_called_once_with(
+        7, b"nested eml bytes", "Fwd: report.eml"
+    )
+    assert '"vaultId": "vault-id-nested"' in output.attachments
+
+
+def test_get_email_downloads_eml_and_saves_to_vault(mocker):
+    soar = Mock()
+    soar.get_executing_container_id.return_value = 9
+    soar.vault.create_attachment.return_value = "vault-id-eml"
+
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [
+        {"id": "msg-1", "hasAttachments": False},
+        b"raw eml bytes",
+    ]
+    mocker.patch("src.actions.get_email.MsGraphHelper", return_value=helper)
+
+    params = Mock(
+        id="msg-1",
+        email_address="user@example.com",
+        get_headers=False,
+        download_attachments=False,
+        download_email=True,
+    )
+
+    output = get_email(params, soar, Mock())
+
+    soar.vault.create_attachment.assert_called_once_with(
+        9, b"raw eml bytes", "msg-1.eml"
+    )
+    assert output.eml_vault_id == "vault-id-eml"
