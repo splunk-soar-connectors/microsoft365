@@ -369,7 +369,7 @@ class Asset(BaseAsset):
         required=False,
         description="Unwrap Microsoft JMR reported messages for Enterprise Security",
         default=False,
-        category=FieldCategory.CONNECTIVITY,
+        category=FieldCategory.INGEST,
     )
 
 
@@ -891,16 +891,13 @@ def _extract_inner_email(
     return None
 
 
-def _is_jmr_wrapper(message: Message) -> bool:
+def _is_jmr_wrapper(message: Message | str | bytes) -> bool:
     """Return whether the outer MIME message is a Microsoft JMR wrapper."""
+    if not isinstance(message, Message):
+        raw_bytes = message.encode("utf-8") if isinstance(message, str) else message
+        message = BytesParser(policy=policy.default).parsebytes(raw_bytes)
     message_id = message.get("Message-ID", "").strip().lstrip("<")
     return message_id.lower().startswith("jmr.")
-
-
-def _is_jmr_wrapper_raw_email(raw_eml: str | bytes) -> bool:
-    """Return whether raw EML content is a Microsoft JMR wrapper."""
-    raw_bytes = raw_eml.encode("utf-8") if isinstance(raw_eml, str) else raw_eml
-    return _is_jmr_wrapper(BytesParser(policy=policy.default).parsebytes(raw_bytes))
 
 
 def _extract_jmr_inner_email(
@@ -1083,7 +1080,7 @@ def on_es_poll(
                         reporter = None
                         outer_parsed = parsed
                         jmr_inner = None
-                        is_jmr_wrapper = _is_jmr_wrapper_raw_email(raw_eml)
+                        is_jmr_wrapper = _is_jmr_wrapper(raw_eml)
                         if is_jmr_wrapper and getattr(
                             asset, "unwrap_jmr_reported_message", False
                         ):

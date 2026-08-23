@@ -35,10 +35,10 @@ def test_embedded_email_attachment_detection_is_case_insensitive():
     assert not app_module._is_embedded_email_attachment("payload.zip")
 
 
-def test_jmr_unwrap_setting_is_exposed_in_es_asset_settings():
+def test_jmr_unwrap_setting_uses_ingest_category():
     configuration = app_module.Asset.to_json_schema()
 
-    assert configuration["unwrap_jmr_reported_message"]["category"] == "connectivity"
+    assert configuration["unwrap_jmr_reported_message"]["category"] == "ingest"
 
 
 def _outer_email_data():

@@ -561,7 +561,7 @@ This section explains each configuration field in user-friendly terms.
 
 #### **Extract EML** - Saves the main email as an EML file in vault to preserve original email format
 
-#### **Unwrap Microsoft JMR Reported Messages for Enterprise Security** - Uses the original message embedded in a Microsoft JMR report for ES finding evidence. This affects only ES polling and is disabled by default. In Enterprise Security, configure it under the connector's **Asset Settings** tab.
+#### **Unwrap Microsoft JMR Reported Messages for Enterprise Security** - Uses the original message embedded in a Microsoft JMR report for ES finding evidence. This affects only ES polling and is disabled by default.
 
 #### **Extract Hashes** - Finds and creates MD5 hash artifacts from email content for malware identification
 

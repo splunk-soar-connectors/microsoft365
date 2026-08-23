@@ -374,8 +374,7 @@ Configure email ingestion with these parameters:
   root email in the vault
 - **unwrap_jmr_reported_message**: When enabled, Enterprise Security polling uses the original
   email embedded in a Microsoft JMR report as finding evidence. The JMR wrapper is retained as
-  raw email evidence. In Enterprise Security, this setting is under the connector's **Asset
-  Settings** tab.
+  raw email evidence.
 
 If extract_attachments is set to true, only fileAttachment will be ingested. If both ingest_eml and
 extract_attachments are set to true, then both fileAttachment and itemAttachment will be ingested.
@@ -571,6 +570,8 @@ This section explains each configuration field in user-friendly terms.
 #### **Extract Domains** - Finds and creates domain artifacts from email content for DNS-based threat intelligence
 
 #### **Extract EML** - Saves the main email as an EML file in vault to preserve original email format
+
+#### **Unwrap Microsoft JMR Reported Messages for Enterprise Security** - Uses the original message embedded in a Microsoft JMR report for ES finding evidence. This affects only ES polling and is disabled by default.
 
 #### **Extract Hashes** - Finds and creates MD5 hash artifacts from email content for malware identification
 
