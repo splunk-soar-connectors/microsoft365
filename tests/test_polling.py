@@ -391,6 +391,8 @@ def test_on_poll_extract_domains_includes_mailto_and_schemeless_links(mocker):
         if getattr(item, "name", None) == "Domain Artifact"
     }
     assert domains == {"evil-domain.com", "bare-domain.com"}
+
+
 def test_es_poll_keeps_untrusted_outer_email_as_primary_evidence(mocker):
     outer = SimpleNamespace(
         headers=SimpleNamespace(
