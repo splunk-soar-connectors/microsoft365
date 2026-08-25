@@ -594,6 +594,7 @@ VARIABLE | REQUIRED | TYPE | DESCRIPTION
 **retry_count** | optional | numeric | Maximum attempts to retry the API call (Default: 3) |
 **retry_wait_time** | optional | numeric | Delay in seconds between retries (Default: 60) |
 **email_address** | optional | string | Email Address of the User (On Poll) |
+**trusted_reporter_addresses** | optional | string | Comma-separated email addresses trusted to submit attached messages as reports during ES polling |
 **folder** | optional | string | Mailbox folder name/folder path or the internal office365 folder ID to ingest (On Poll) |
 **get_folder_id** | optional | boolean | Retrieve the folder ID for the provided folder name/folder path automatically |
 **first_run_max_emails** | optional | numeric | Maximum emails for scheduled polling first time |
