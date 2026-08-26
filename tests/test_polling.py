@@ -422,6 +422,9 @@ def test_on_es_poll_does_not_unwrap_jmr_messages_unless_enabled(mocker):
 
     assert len(findings) == 1
     assert findings[0].email.headers == {"subject": "Wrapper subject"}
+    assert len(findings[0].attachments) == 1
+    assert findings[0].attachments[0].data.startswith(b"Message-ID: <JMR.")
+    assert findings[0].attachments[0].is_raw_email
     jmr_extract.assert_not_called()
     generic_extract.assert_not_called()
 
@@ -436,8 +439,12 @@ def test_on_es_poll_uses_jmr_original_email_when_enabled(mocker):
 
     outer = SimpleNamespace(
         body=SimpleNamespace(plain_text="Wrapper body", html=None),
-        urls=[],
-        attachments=[],
+        urls=["https://example.test/wrapper"],
+        attachments=[
+            SimpleNamespace(
+                filename="wrapper-metadata.txt", content=b"wrapper metadata"
+            )
+        ],
         headers=SimpleNamespace(subject="Wrapper subject", date=None),
         to_dict=lambda: {"headers": {"subject": "Wrapper subject"}},
     )
@@ -458,11 +465,14 @@ def test_on_es_poll_uses_jmr_original_email_when_enabled(mocker):
         },
     )
     reporter = app_module.FindingEmailReporter(
-        from_="reporter@example.com",
-        to="abuse@example.com",
-        subject="Wrapper subject",
-        id="one",
-        body="Wrapper body",
+        from_="sender@example.com",
+        to="recipient@example.com",
+        cc="copied@example.com",
+        subject="Original subject",
+        message_id="<original-message@example.com>",
+        id="original-network-id",
+        body="Original body",
+        date="Thu, 20 Aug 2026 10:00:00 +0000",
     )
     mocker.patch.object(app_module, "extract_email_data", return_value=outer)
     jmr_extract = mocker.patch.object(
@@ -484,6 +494,20 @@ def test_on_es_poll_uses_jmr_original_email_when_enabled(mocker):
         "to": "recipient@example.com",
     }
     assert findings[0].email.body == "Original body"
-    assert findings[0].email.reporter.from_ == "reporter@example.com"
+    assert findings[0].email.urls == ["https://example.test/original"]
+    assert findings[0].email.reporter.model_dump(by_alias=True) == {
+        "from": "sender@example.com",
+        "to": "recipient@example.com",
+        "cc": "copied@example.com",
+        "bcc": None,
+        "subject": "Original subject",
+        "message_id": "<original-message@example.com>",
+        "id": "original-network-id",
+        "body": "Original body",
+        "date": "Thu, 20 Aug 2026 10:00:00 +0000",
+    }
+    assert len(findings[0].attachments) == 1
+    assert findings[0].attachments[0].data == b"original raw email"
+    assert findings[0].attachments[0].is_raw_email
     jmr_extract.assert_called_once()
     generic_extract.assert_not_called()
