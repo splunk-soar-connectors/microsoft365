@@ -5,7 +5,7 @@ from soar_sdk.exceptions import ActionFailure
 from soar_sdk.params import Param, Params
 
 from ..app import Asset, app
-from ..helper import MsGraphHelper
+from ..helper import GraphPaginationState, MsGraphHelper
 
 
 # Maps the Microsoft Graph directory object type (@odata.type) to a
@@ -83,8 +83,11 @@ def list_addresses(
 
     members = []
     next_link = None
+    pagination_state = GraphPaginationState()
     while True:
-        resp = helper.make_rest_call_helper(endpoint, nextLink=next_link)
+        resp = helper.make_rest_call_helper(
+            endpoint, nextLink=next_link, pagination_state=pagination_state
+        )
         members.extend(resp.get("value", []))
         next_link = resp.get("@odata.nextLink")
         if not next_link:

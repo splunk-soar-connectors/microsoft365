@@ -1,7 +1,10 @@
 # Copyright (c) 2017-2026 Splunk Inc.
+from datetime import UTC, datetime, timedelta
+
 from soar_sdk.abstract import SOARClient
 from soar_sdk.action_results import ActionOutput
 from soar_sdk.exceptions import ActionFailure
+from soar_sdk.extras.email.utils import is_ip
 from soar_sdk.params import Param, Params
 
 from ..app import Asset, app
@@ -10,7 +13,7 @@ from ..consts import (
     MSGOFFICE365_MESSAGE_TRACE_ENDPOINT,
     MSGOFFICE365_MESSAGE_TRACE_MAX_TOP,
 )
-from ..helper import MsGraphHelper
+from ..helper import GraphPaginationState, MsGraphHelper
 
 
 class TraceEmailParams(Params):
@@ -105,6 +108,10 @@ class MessageTraceOutput(ActionOutput):
     status: str | None = None
 
 
+class TraceEmailSummary(ActionOutput):
+    emails_found: int = 0
+
+
 def _validate_range(email_range: str) -> tuple[int, int]:
     """Validate and parse a 'min-max' offset range, mirroring the office365 app."""
     try:
@@ -128,6 +135,21 @@ def _validate_range(email_range: str) -> tuple[int, int]:
 def _escape(value: str) -> str:
     """Escape single quotes for use inside an OData string literal."""
     return value.replace("'", "''")
+
+
+def _validate_iso_utc(value: str, field: str) -> datetime:
+    """Validate that a value is a strict ISO-8601 UTC timestamp (YYYY-MM-DDThh:mm:ssZ).
+
+    Enforcing the exact format both prevents unexpected/injected OData syntax and
+    guarantees a timezone-aware UTC value before it is used in a cross-system filter.
+    """
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    except ValueError:
+        raise ActionFailure(
+            f"'{field}' must be an ISO 8601 UTC timestamp of the form "
+            "YYYY-MM-DDThh:mm:ssZ (e.g. 2026-01-20T00:00:00Z)"
+        ) from None
 
 
 def _or_clause(field: str, raw_value: str) -> str | None:
@@ -168,8 +190,18 @@ def _build_filter(params: TraceEmailParams) -> str:
     if params.internet_message_id:
         clauses.append(f"messageId eq '{_escape(params.internet_message_id)}'")
     if params.to_ip:
+        if not is_ip(params.to_ip):
+            raise ActionFailure(f"'to ip' is not a valid IP address: {params.to_ip}")
         clauses.append(f"toIP eq '{_escape(params.to_ip)}'")
     if params.start_date and params.end_date:
+        start_dt = _validate_iso_utc(params.start_date, "start date")
+        end_dt = _validate_iso_utc(params.end_date, "end date")
+        if end_dt < start_dt:
+            raise ActionFailure("'end date' must not be earlier than 'start date'")
+        if end_dt - start_dt > timedelta(days=10):
+            raise ActionFailure("The date range must not exceed 10 days")
+        if start_dt < datetime.now(UTC) - timedelta(days=90):
+            raise ActionFailure("'start date' must be within the last 90 days")
         clauses.append(
             f"receivedDateTime ge {params.start_date} and "
             f"receivedDateTime le {params.end_date}"
@@ -189,10 +221,15 @@ def trace_email(
     if params.range:
         mini, maxi = _validate_range(params.range)
 
+    if params.from_ip and not is_ip(params.from_ip):
+        raise ActionFailure(f"'from ip' is not a valid IP address: {params.from_ip}")
+
+    # Validate and build the filter before authenticating so invalid input fails fast.
+    filter_str = _build_filter(params)
+
     helper = MsGraphHelper(soar, asset)
     helper.get_token()
 
-    filter_str = _build_filter(params)
     api_params: dict | None = {"$top": str(MSGOFFICE365_MESSAGE_TRACE_MAX_TOP)}
     if filter_str:
         api_params["$filter"] = filter_str
@@ -200,11 +237,13 @@ def trace_email(
     # The message trace API currently lives under the Graph beta endpoint.
     results: list[dict] = []
     next_link = None
+    pagination_state = GraphPaginationState()
     while True:
         resp = helper.make_rest_call_helper(
             MSGOFFICE365_MESSAGE_TRACE_ENDPOINT,
             params=api_params,
             nextLink=next_link,
+            pagination_state=pagination_state,
             beta=True,
         )
         results.extend(resp.get("value", []))
@@ -228,6 +267,7 @@ def trace_email(
     results = results[mini : maxi + 1]
 
     soar.set_message(f"Emails found: {len(results)}")
+    soar.set_summary(TraceEmailSummary(emails_found=len(results)))
     return [
         MessageTraceOutput(
             id=r.get("id"),

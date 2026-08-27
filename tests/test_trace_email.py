@@ -1,6 +1,7 @@
 # Copyright (c) 2017-2026 Splunk Inc.
 """Unit tests for the 'trace email' action."""
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,11 +16,17 @@ from src.actions.trace_email import (
     _validate_range,
     trace_email,
 )
+from src.helper import GraphPaginationState
 
 
 def make_params(**overrides):
     """Build a real TraceEmailParams instance (all fields have defaults)."""
     return TraceEmailParams(**overrides)
+
+
+def _iso(days_ago: int) -> str:
+    """ISO-8601 UTC timestamp `days_ago` days before now (keeps tests from rotting)."""
+    return (datetime.now(UTC) - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def run_action(params, responses):
@@ -86,22 +93,20 @@ def test_validate_range_invalid(value):
 # _build_filter
 # --------------------------------------------------------------------------- #
 def test_build_filter_combines_conditions():
+    start, end = _iso(5), _iso(2)
     f = _build_filter(
         make_params(
             sender_address="a@x.com",
             recipient_address="b@y.com",
             status="delivered",
-            start_date="2026-01-01T00:00:00Z",
-            end_date="2026-01-05T00:00:00Z",
+            start_date=start,
+            end_date=end,
         )
     )
     assert "senderAddress eq 'a@x.com'" in f
     assert "recipientAddress eq 'b@y.com'" in f
     assert "status eq 'delivered'" in f
-    assert (
-        "receivedDateTime ge 2026-01-01T00:00:00Z and "
-        "receivedDateTime le 2026-01-05T00:00:00Z" in f
-    )
+    assert f"receivedDateTime ge {start} and receivedDateTime le {end}" in f
 
 
 def test_build_filter_excludes_from_ip():
@@ -117,9 +122,34 @@ def test_build_filter_single_field_clauses():
 
 def test_build_filter_requires_both_dates():
     with pytest.raises(ActionFailure):
-        _build_filter(make_params(start_date="2026-01-01T00:00:00Z"))
+        _build_filter(make_params(start_date=_iso(3)))
     with pytest.raises(ActionFailure):
-        _build_filter(make_params(end_date="2026-01-01T00:00:00Z"))
+        _build_filter(make_params(end_date=_iso(3)))
+
+
+def test_build_filter_rejects_bad_date_format():
+    with pytest.raises(ActionFailure):
+        _build_filter(make_params(start_date="2026-01-01", end_date="2026-01-02"))
+
+
+def test_build_filter_rejects_end_before_start():
+    with pytest.raises(ActionFailure):
+        _build_filter(make_params(start_date=_iso(2), end_date=_iso(5)))
+
+
+def test_build_filter_rejects_window_over_10_days():
+    with pytest.raises(ActionFailure):
+        _build_filter(make_params(start_date=_iso(20), end_date=_iso(2)))
+
+
+def test_build_filter_rejects_start_older_than_90_days():
+    with pytest.raises(ActionFailure):
+        _build_filter(make_params(start_date=_iso(100), end_date=_iso(95)))
+
+
+def test_build_filter_rejects_invalid_to_ip():
+    with pytest.raises(ActionFailure):
+        _build_filter(make_params(to_ip="not-an-ip"))
 
 
 # --------------------------------------------------------------------------- #
@@ -141,8 +171,25 @@ def test_trace_email_paginates_and_filters_from_ip():
         "@odata.nextLink": "NEXT",
     }
     page2 = {"value": [{"id": "3", "messageId": "<m3>", "fromIP": "8.8.8.8"}]}
-    result, _ = run_action(make_params(from_ip="8.8.8.8"), [page1, page2])
+    result, helper = run_action(make_params(from_ip="8.8.8.8"), [page1, page2])
     assert [r.id for r in result] == ["1", "3"]
+    # Every paginated call must pass a GraphPaginationState (the helper contract).
+    for call in helper.make_rest_call_helper.call_args_list:
+        assert isinstance(call.kwargs.get("pagination_state"), GraphPaginationState)
+
+
+def test_trace_email_rejects_invalid_from_ip():
+    with pytest.raises(ActionFailure):
+        run_action(make_params(from_ip="not-an-ip"), [{"value": []}])
+
+
+def test_trace_email_sets_emails_found_summary():
+    resp = {"value": [{"id": "1"}, {"id": "2"}]}
+    soar = MagicMock()
+    with patch("src.actions.trace_email.MsGraphHelper") as helper_cls:
+        helper_cls.return_value.make_rest_call_helper.side_effect = [resp]
+        trace_email.__wrapped__(make_params(), soar, MagicMock())
+    assert soar.set_summary.call_args.args[0].emails_found == 2
 
 
 def test_trace_email_widget_filter_strips_brackets():

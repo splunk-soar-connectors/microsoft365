@@ -7,6 +7,7 @@ import pytest
 from soar_sdk.exceptions import ActionFailure
 
 from src.actions.list_addresses import ListAddressesParams, list_addresses
+from src.helper import GraphPaginationState
 
 
 def make_params(group="dl@x.com", recursive=False):
@@ -96,8 +97,14 @@ def test_list_addresses_paginates_members():
             {"@odata.type": "#microsoft.graph.user", "id": "u2", "mail": "u2@x.com"}
         ]
     }
-    result, _ = run_action(make_params(), [GROUP_RESP, page1, page2])
+    result, helper = run_action(make_params(), [GROUP_RESP, page1, page2])
     assert [r.id for r in result] == ["u1", "u2"]
+    # The member-listing calls (after the group-resolution call) must pass a
+    # GraphPaginationState, per the helper contract.
+    member_calls = helper.make_rest_call_helper.call_args_list[1:]
+    assert member_calls
+    for call in member_calls:
+        assert isinstance(call.kwargs.get("pagination_state"), GraphPaginationState)
 
 
 def test_list_addresses_group_not_found_raises():
