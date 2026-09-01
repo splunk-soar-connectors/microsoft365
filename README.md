@@ -372,6 +372,9 @@ Configure email ingestion with these parameters:
   - **Note**: This will only ingest the first level 'item attachment' as an EML file. The nested item attachments will not be ingested into the vault. If the extract_attachments flag is set to false, then the application will also skip the EML file ingestion regardless of this flag value.
 - **extract_eml**: When polling is on and extract_eml is enabled, it will add the eml files of the
   root email in the vault
+- **unwrap_jmr_reported_message**: When enabled, Enterprise Security polling uses the original
+  email embedded in a Microsoft JMR report for all email and Reporter details, finding evidence,
+  and threat analysis. Only the original email and its attachments are submitted as evidence.
 
 If extract_attachments is set to true, only fileAttachment will be ingested. If both ingest_eml and
 extract_attachments are set to true, then both fileAttachment and itemAttachment will be ingested.
@@ -568,6 +571,8 @@ This section explains each configuration field in user-friendly terms.
 
 #### **Extract EML** - Saves the main email as an EML file in vault to preserve original email format
 
+#### **Unwrap Microsoft JMR Reported Messages for Enterprise Security** - Uses only the original message embedded in a Microsoft JMR report, plus its attachments, for ES email details, Reporter details, finding evidence, and threat analysis. This affects only ES polling and is disabled by default.
+
 #### **Extract Hashes** - Finds and creates MD5 hash artifacts from email content for malware identification
 
 #### **Extract IPs** - Finds and creates IP address artifacts from email content for network threat analysis
@@ -606,6 +611,7 @@ VARIABLE | REQUIRED | TYPE | DESCRIPTION
 **ingest_eml** | optional | boolean | Ingest EML file for the itemAttachment |
 **ingest_manner** | optional | string | How to Ingest |
 **extract_eml** | optional | boolean | Extract root (primary) email as Vault |
+**unwrap_jmr_reported_message** | optional | boolean | Unwrap Microsoft JMR reported messages for Enterprise Security |
 
 ### Supported Actions
 
