@@ -48,7 +48,11 @@ class MessageOutput(ActionOutput):
     importance: str | None = None
 
 
-@app.action(description="Get messages from a mailbox folder", action_type="investigate")
+@app.action(
+    description="Get messages from a mailbox folder",
+    action_type="investigate",
+    read_only=True,
+)
 def get_mailbox_messages(
     params: GetMailboxMessagesParams, soar: SOARClient, asset: Asset
 ) -> list[MessageOutput]:

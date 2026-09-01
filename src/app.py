@@ -1140,6 +1140,7 @@ app.register_action(
     action_type="investigate",
     view_handler=render_get_email,
     view_template="office365_get_email.html",
+    read_only=True,
 )
 
 from .actions.list_events import list_events, render_list_events
@@ -1151,6 +1152,7 @@ app.register_action(
     action_type="investigate",
     view_handler=render_list_events,
     view_template="office365_list_events.html",
+    read_only=True,
 )
 
 from .actions.get_rule import get_rule, render_get_rule
@@ -1162,6 +1164,7 @@ app.register_action(
     action_type="investigate",
     view_handler=render_get_rule,
     view_template="office365_get_rule.html",
+    read_only=True,
 )
 
 from .actions.list_rules import list_rules, render_list_rules
@@ -1173,6 +1176,7 @@ app.register_action(
     action_type="investigate",
     view_handler=render_list_rules,
     view_template="office365_list_rules.html",
+    read_only=True,
 )
 
 from .actions.resolve_name import render_resolve_name, resolve_name
@@ -1184,6 +1188,7 @@ app.register_action(
     action_type="investigate",
     view_handler=render_resolve_name,
     view_template="office365_resolve_name.html",
+    read_only=True,
 )
 
 from .actions.run_query import render_run_query, run_query
@@ -1195,6 +1200,7 @@ app.register_action(
     action_type="investigate",
     view_handler=render_run_query,
     view_template="office365_run_query.html",
+    read_only=True,
 )
 
 
