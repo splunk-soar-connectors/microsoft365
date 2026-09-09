@@ -12,6 +12,7 @@ from src.helper import (
     encode_path_segment,
     escape_odata_string,
     quote_graph_search_phrase,
+    validate_attachment_upload_url,
     validate_graph_next_link,
     validate_graph_page_count,
 )
@@ -42,6 +43,51 @@ def test_validate_graph_next_link_accepts_graph_pagination_url():
 def test_validate_graph_next_link_rejects_untrusted_url(next_link):
     with pytest.raises(ActionFailure, match="untrusted pagination URL"):
         validate_graph_next_link(next_link)
+
+
+def test_validate_attachment_upload_url_accepts_outlook_preauthenticated_url():
+    upload_url = "https://outlook.office.com/upload/token?authtoken=secret"
+
+    assert validate_attachment_upload_url(upload_url) == upload_url
+
+
+@pytest.mark.parametrize(
+    "upload_url",
+    [
+        "https://attacker.example/upload/token",
+        "https://outlook.office.com@attacker.example/upload/token",
+        "http://outlook.office.com/upload/token",
+        "https://outlook.office.com:invalid/upload/token",
+        "https://outlook.office.com/upload/token#fragment",
+    ],
+)
+def test_validate_attachment_upload_url_rejects_untrusted_url(upload_url):
+    with pytest.raises(ActionFailure, match="untrusted attachment upload URL"):
+        validate_attachment_upload_url(upload_url)
+
+
+def test_upload_attachment_chunk_omits_authorization_and_redirects(mocker):
+    helper = _helper(mocker)
+    response = mocker.Mock(status_code=202)
+    request = mocker.patch("src.helper.requests.put", return_value=response)
+
+    helper.upload_attachment_chunk(
+        "https://outlook.office.com/upload/token",
+        b"abc",
+        "bytes 0-2/3",
+    )
+
+    request.assert_called_once_with(
+        "https://outlook.office.com/upload/token",
+        headers={
+            "Content-Type": "application/octet-stream",
+            "Content-Length": "3",
+            "Content-Range": "bytes 0-2/3",
+        },
+        data=b"abc",
+        timeout=30,
+        allow_redirects=False,
+    )
 
 
 def test_validate_graph_page_count_rejects_page_after_safety_limit():

@@ -75,6 +75,30 @@ def validate_graph_next_link(next_link: str) -> str:
     return next_link
 
 
+def validate_attachment_upload_url(upload_url: str) -> str:
+    """Validate the preauthenticated Outlook URL returned by Graph."""
+    parsed = urlsplit(upload_url)
+    try:
+        port = parsed.port
+    except ValueError:
+        raise ActionFailure(
+            "Microsoft Graph returned an untrusted attachment upload URL"
+        ) from None
+    if (
+        parsed.scheme.casefold() != "https"
+        or (parsed.hostname or "").casefold() != "outlook.office.com"
+        or port not in (None, 443)
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+        or not parsed.path.startswith("/")
+    ):
+        raise ActionFailure(
+            "Microsoft Graph returned an untrusted attachment upload URL"
+        )
+    return upload_url
+
+
 def validate_graph_page_count(page_count: int) -> None:
     """Bound pagination even when an upstream keeps returning continuation links."""
     if page_count > MSGOFFICE365_MAX_PAGES:
@@ -314,6 +338,48 @@ class MsGraphHelper:
                 except ActionFailure as refresh_error:
                     raise ActionFailure(str(refresh_error)) from None
             raise
+
+    def upload_attachment_chunk(
+        self, upload_url: str, content: bytes, content_range: str
+    ) -> None:
+        """Upload one chunk to a Graph-provided preauthenticated URL."""
+        validate_attachment_upload_url(upload_url)
+        headers = {
+            "Content-Type": "application/octet-stream",
+            "Content-Length": str(len(content)),
+            "Content-Range": content_range,
+        }
+
+        attempts = max(1, self._number_of_retries)
+        for attempt in range(attempts):
+            try:
+                response = requests.put(
+                    upload_url,
+                    headers=headers,
+                    data=content,
+                    timeout=MSGOFFICE365_DEFAULT_REQUEST_TIMEOUT,
+                    allow_redirects=False,
+                )
+            except requests.RequestException as e:
+                raise ActionFailure("Attachment upload request failed") from e
+
+            if response.status_code not in (429, 502):
+                break
+            if attempt + 1 == attempts:
+                break
+
+            retry_after = self._retry_wait_time
+            if response.status_code == 429:
+                try:
+                    retry_after = int(response.headers.get("Retry-After", retry_after))
+                except (TypeError, ValueError):
+                    retry_after = self._retry_wait_time
+            time.sleep(min(max(retry_after, 0), 60))
+
+        if response.status_code not in (200, 201, 202):
+            raise ActionFailure(
+                f"Attachment upload failed with status {response.status_code}"
+            )
 
     def get_folder_id(self, folder_name: str, email_address: str) -> str | None:
         if not folder_name:
