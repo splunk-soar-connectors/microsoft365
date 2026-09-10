@@ -1,3 +1,1 @@
 **Unreleased**
-
-* Add support for sending SOAR Vault files as Microsoft 365 email attachments.
