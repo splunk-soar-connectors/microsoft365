@@ -107,8 +107,8 @@ To successfully run Test Connectivity, you need at least one of these permission
 **Email Operations**
 
 - `Mail.Read` - Read emails, search messages, polling
-- `Mail.ReadWrite` - Copy, move, delete, update emails, create folders
-- `Mail.Send` - Send emails with attachments
+- `Mail.ReadWrite` - Copy, move, delete, update emails, create folders, and create attachment upload sessions
+- `Mail.Send` - Send emails; Vault attachments also require `Mail.ReadWrite`
 
 **User & Group Management**
 
@@ -289,7 +289,7 @@ Test Connectivity needs at least one of these permissions:
 | move email | `Mail.ReadWrite` | `Mail.ReadWrite` | Requires write permissions |
 | delete email | `Mail.ReadWrite` | `Mail.ReadWrite` | Requires write permissions |
 | update email | `Mail.ReadWrite` | `Mail.ReadWrite` | Requires write permissions |
-| send email | `Mail.Send` | `Mail.Send` + `Mail.ReadWrite` | ReadWrite for attachments |
+| send email | `Mail.Send` | `Mail.Send` + `Mail.ReadWrite` | Mail.ReadWrite is required only when attachments are supplied |
 | block/unblock sender | `Mail.ReadWrite` | `Mail.ReadWrite` | Uses beta API |
 | **Folder Actions** | | | |
 | list folders | `Mail.ReadBasic` | `Mail.Read` | ReadBasic for folder list only |
@@ -314,6 +314,12 @@ Test Connectivity needs at least one of these permissions:
 | on poll | `Mail.ReadBasic` | `Mail.Read` | ReadBasic for basic polling |
 
 **Legend**: App = Application permissions, Del = Delegated permissions
+
+### Send Email Attachments
+
+The **send email** action accepts a comma-separated list of Vault IDs. Files smaller than 3 MB are attached directly; files from 3 MB through 150 MB use a Microsoft Graph upload session. Each Vault ID is resolved from the executing container first and then from the global Vault.
+
+Attachment use requires both `Mail.Send` and `Mail.ReadWrite`. Microsoft 365 tenant message-size limits still apply and may be lower than the connector's 150 MB per-file limit. See [Attach large files to Outlook messages](https://learn.microsoft.com/en-us/graph/outlook-large-attachments) for Microsoft Graph limits and permissions.
 
 **Important Notes**:
 

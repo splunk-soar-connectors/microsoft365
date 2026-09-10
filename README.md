@@ -117,8 +117,8 @@ To successfully run Test Connectivity, you need at least one of these permission
 **Email Operations**
 
 - `Mail.Read` - Read emails, search messages, polling
-- `Mail.ReadWrite` - Copy, move, delete, update emails, create folders
-- `Mail.Send` - Send emails with attachments
+- `Mail.ReadWrite` - Copy, move, delete, update emails, create folders, and create attachment upload sessions
+- `Mail.Send` - Send emails; Vault attachments also require `Mail.ReadWrite`
 
 **User & Group Management**
 
@@ -299,7 +299,7 @@ Test Connectivity needs at least one of these permissions:
 | move email | `Mail.ReadWrite` | `Mail.ReadWrite` | Requires write permissions |
 | delete email | `Mail.ReadWrite` | `Mail.ReadWrite` | Requires write permissions |
 | update email | `Mail.ReadWrite` | `Mail.ReadWrite` | Requires write permissions |
-| send email | `Mail.Send` | `Mail.Send` + `Mail.ReadWrite` | ReadWrite for attachments |
+| send email | `Mail.Send` | `Mail.Send` + `Mail.ReadWrite` | Mail.ReadWrite is required only when attachments are supplied |
 | block/unblock sender | `Mail.ReadWrite` | `Mail.ReadWrite` | Uses beta API |
 | **Folder Actions** | | | |
 | list folders | `Mail.ReadBasic` | `Mail.Read` | ReadBasic for folder list only |
@@ -324,6 +324,12 @@ Test Connectivity needs at least one of these permissions:
 | on poll | `Mail.ReadBasic` | `Mail.Read` | ReadBasic for basic polling |
 
 **Legend**: App = Application permissions, Del = Delegated permissions
+
+### Send Email Attachments
+
+The **send email** action accepts a comma-separated list of Vault IDs. Files smaller than 3 MB are attached directly; files from 3 MB through 150 MB use a Microsoft Graph upload session. Each Vault ID is resolved from the executing container first and then from the global Vault.
+
+Attachment use requires both `Mail.Send` and `Mail.ReadWrite`. Microsoft 365 tenant message-size limits still apply and may be lower than the connector's 150 MB per-file limit. See [Attach large files to Outlook messages](https://learn.microsoft.com/en-us/graph/outlook-large-attachments) for Microsoft Graph limits and permissions.
 
 **Important Notes**:
 
@@ -635,7 +641,7 @@ VARIABLE | REQUIRED | TYPE | DESCRIPTION
 [move email](#action-move-email) - Move an email to a folder <br>
 [oof check](#action-oof-check) - Get user's out of office status <br>
 [report message](#action-report-message) - Add the sender email into the report <br>
-[send email](#action-send-email) - Send an email <br>
+[send email](#action-send-email) - Send an email, optionally attaching files from the SOAR Vault <br>
 [unblock sender](#action-unblock-sender) - Remove a sender from the blocked senders list <br>
 [update email](#action-update-email) - Update properties of an email <br>
 [get email](#action-get-email) - Get an email from the server <br>
@@ -1231,7 +1237,7 @@ summary.total_objects_successful | numeric | | 1 |
 
 ## action: 'send email'
 
-Send an email
+Send an email, optionally attaching files from the SOAR Vault
 
 Type: **generic** <br>
 Read only: **False**
@@ -1247,6 +1253,7 @@ PARAMETER | REQUIRED | DESCRIPTION | TYPE | CONTAINS
 **subject** | required | Email subject | string | |
 **body** | required | Email body | string | |
 **body_is_html** | optional | Is body HTML | boolean | |
+**attachments** | optional | Comma-separated Vault IDs of files to attach (up to 150 MB each) | string | `sha1` `vault id` |
 
 #### Action Output
 
@@ -1261,6 +1268,7 @@ action_result.parameter.bcc | string | | |
 action_result.parameter.subject | string | | |
 action_result.parameter.body | string | | |
 action_result.parameter.body_is_html | boolean | | |
+action_result.parameter.attachments | string | `sha1` `vault id` | |
 action_result.data.\*.message | string | | |
 summary.total_objects | numeric | | 1 |
 summary.total_objects_successful | numeric | | 1 |
