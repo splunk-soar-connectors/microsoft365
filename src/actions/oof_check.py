@@ -26,7 +26,11 @@ class OofCheckOutput(ActionOutput):
     scheduledEndDateTime: str | None = None
 
 
-@app.action(description="Get user's out of office status", action_type="investigate")
+@app.action(
+    description="Get user's out of office status",
+    action_type="investigate",
+    read_only=True,
+)
 def oof_check(params: OofCheckParams, soar: SOARClient, asset: Asset) -> OofCheckOutput:
     helper = MsGraphHelper(soar, asset)
     helper.get_token()

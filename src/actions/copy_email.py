@@ -39,7 +39,9 @@ class CopyEmailOutput(ActionOutput):
     parentFolderId: str | None = None
 
 
-@app.action(description="Copy an email to a folder", action_type="generic")
+@app.action(
+    description="Copy an email to a folder", action_type="generic", read_only=False
+)
 def copy_email(
     params: CopyEmailParams, soar: SOARClient, asset: Asset
 ) -> CopyEmailOutput:

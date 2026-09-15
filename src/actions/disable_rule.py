@@ -28,7 +28,9 @@ class DisableRuleOutput(ActionOutput):
     pass
 
 
-@app.action(description="Disable inbox rule by ID", action_type="contain")
+@app.action(
+    description="Disable inbox rule by ID", action_type="contain", read_only=False
+)
 def disable_rule(
     params: DisableRuleParams, soar: SOARClient, asset: Asset
 ) -> DisableRuleOutput:

@@ -18,6 +18,7 @@ class GenerateTokenOutput(ActionOutput):
 @app.action(
     description="Generates a new access token",
     action_type="generic",
+    read_only=True,
 )
 def generate_token(
     params: GenerateTokenParams, soar: SOARClient, asset: Asset

@@ -39,7 +39,9 @@ class MoveEmailOutput(ActionOutput):
     parentFolderId: str | None = None
 
 
-@app.action(description="Move an email to a folder", action_type="generic")
+@app.action(
+    description="Move an email to a folder", action_type="generic", read_only=False
+)
 def move_email(
     params: MoveEmailParams, soar: SOARClient, asset: Asset
 ) -> MoveEmailOutput:

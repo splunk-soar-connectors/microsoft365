@@ -1,7 +1,7 @@
 # Microsoft 365
 
 Publisher: Splunk <br>
-Connector Version: 1.2.4 <br>
+Connector Version: 1.4.0 <br>
 Product Vendor: Microsoft <br>
 Product Name: Microsoft 365 (MS Graph) <br>
 Minimum Product Version: 7.0.0
@@ -117,8 +117,8 @@ To successfully run Test Connectivity, you need at least one of these permission
 **Email Operations**
 
 - `Mail.Read` - Read emails, search messages, polling
-- `Mail.ReadWrite` - Copy, move, delete, update emails, create folders
-- `Mail.Send` - Send emails with attachments
+- `Mail.ReadWrite` - Copy, move, delete, update emails, create folders, and create attachment upload sessions
+- `Mail.Send` - Send emails; Vault attachments also require `Mail.ReadWrite`
 
 **User & Group Management**
 
@@ -299,7 +299,7 @@ Test Connectivity needs at least one of these permissions:
 | move email | `Mail.ReadWrite` | `Mail.ReadWrite` | Requires write permissions |
 | delete email | `Mail.ReadWrite` | `Mail.ReadWrite` | Requires write permissions |
 | update email | `Mail.ReadWrite` | `Mail.ReadWrite` | Requires write permissions |
-| send email | `Mail.Send` | `Mail.Send` + `Mail.ReadWrite` | ReadWrite for attachments |
+| send email | `Mail.Send` | `Mail.Send` + `Mail.ReadWrite` | Mail.ReadWrite is required only when attachments are supplied |
 | block/unblock sender | `Mail.ReadWrite` | `Mail.ReadWrite` | Uses beta API |
 | **Folder Actions** | | | |
 | list folders | `Mail.ReadBasic` | `Mail.Read` | ReadBasic for folder list only |
@@ -327,6 +327,12 @@ Test Connectivity needs at least one of these permissions:
 | on poll | `Mail.ReadBasic` | `Mail.Read` | ReadBasic for basic polling |
 
 **Legend**: App = Application permissions, Del = Delegated permissions
+
+### Send Email Attachments
+
+The **send email** action accepts a comma-separated list of Vault IDs. Files smaller than 3 MB are attached directly; files from 3 MB through 150 MB use a Microsoft Graph upload session. Each Vault ID is resolved from the executing container first and then from the global Vault.
+
+Attachment use requires both `Mail.Send` and `Mail.ReadWrite`. Microsoft 365 tenant message-size limits still apply and may be lower than the connector's 150 MB per-file limit. See [Attach large files to Outlook messages](https://learn.microsoft.com/en-us/graph/outlook-large-attachments) for Microsoft Graph limits and permissions.
 
 **Important Notes**:
 
@@ -386,6 +392,10 @@ Configure email ingestion with these parameters:
   - **Note**: This will only ingest the first level 'item attachment' as an EML file. The nested item attachments will not be ingested into the vault. If the extract_attachments flag is set to false, then the application will also skip the EML file ingestion regardless of this flag value.
 - **extract_eml**: When polling is on and extract_eml is enabled, it will add the eml files of the
   root email in the vault
+- **unwrap_jmr_reported_message**: When enabled, Enterprise Security polling uses the original
+  email embedded in a Microsoft JMR report for email details, finding evidence, and threat
+  analysis, while Reporter details identify the sender of the JMR wrapper. Only the original
+  email and its attachments are submitted as evidence.
 
 If extract_attachments is set to true, only fileAttachment will be ingested. If both ingest_eml and
 extract_attachments are set to true, then both fileAttachment and itemAttachment will be ingested.
@@ -582,6 +592,8 @@ This section explains each configuration field in user-friendly terms.
 
 #### **Extract EML** - Saves the main email as an EML file in vault to preserve original email format
 
+#### **Unwrap Microsoft JMR Reported Messages for Enterprise Security** - Uses the original message embedded in a Microsoft JMR report, plus its attachments, for ES email details, finding evidence, and threat analysis. Reporter details identify the sender of the JMR wrapper. This affects only ES polling and is disabled by default.
+
 #### **Extract Hashes** - Finds and creates MD5 hash artifacts from email content for malware identification
 
 #### **Extract IPs** - Finds and creates IP address artifacts from email content for network threat analysis
@@ -620,6 +632,7 @@ VARIABLE | REQUIRED | TYPE | DESCRIPTION
 **ingest_eml** | optional | boolean | Ingest EML file for the itemAttachment |
 **ingest_manner** | optional | string | How to Ingest |
 **extract_eml** | optional | boolean | Extract root (primary) email as Vault |
+**unwrap_jmr_reported_message** | optional | boolean | Unwrap Microsoft JMR reported messages for Enterprise Security |
 
 ### Supported Actions
 
@@ -643,7 +656,7 @@ VARIABLE | REQUIRED | TYPE | DESCRIPTION
 [move email](#action-move-email) - Move an email to a folder <br>
 [oof check](#action-oof-check) - Get user's out of office status <br>
 [report message](#action-report-message) - Add the sender email into the report <br>
-[send email](#action-send-email) - Send an email <br>
+[send email](#action-send-email) - Send an email, optionally attaching files from the SOAR Vault <br>
 [trace email](#action-trace-email) - Get message trace from the server <br>
 [unblock sender](#action-unblock-sender) - Remove a sender from the blocked senders list <br>
 [update email](#action-update-email) - Update properties of an email <br>
@@ -728,7 +741,7 @@ No Output
 Copy an email to a folder
 
 Type: **generic** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -760,7 +773,7 @@ summary.total_objects_successful | numeric | | 1 |
 Create a new mail folder
 
 Type: **generic** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -794,7 +807,7 @@ summary.total_objects_successful | numeric | | 1 |
 Delete an email
 
 Type: **generic** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -820,7 +833,7 @@ summary.total_objects_successful | numeric | | 1 |
 Delete an event
 
 Type: **generic** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -984,7 +997,7 @@ summary.total_objects_successful | numeric | | 1 |
 Get the email addresses that make up a Distribution List
 
 Type: **investigate** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -1182,7 +1195,7 @@ summary.total_objects_successful | numeric | | 1 |
 Move an email to a folder
 
 Type: **generic** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -1270,10 +1283,10 @@ summary.total_objects_successful | numeric | | 1 |
 
 ## action: 'send email'
 
-Send an email
+Send an email, optionally attaching files from the SOAR Vault
 
 Type: **generic** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -1286,6 +1299,7 @@ PARAMETER | REQUIRED | DESCRIPTION | TYPE | CONTAINS
 **subject** | required | Email subject | string | |
 **body** | required | Email body | string | |
 **body_is_html** | optional | Is body HTML | boolean | |
+**attachments** | optional | Comma-separated Vault IDs of files to attach (up to 150 MB each) | string | `sha1` `vault id` |
 
 #### Action Output
 
@@ -1300,6 +1314,7 @@ action_result.parameter.bcc | string | | |
 action_result.parameter.subject | string | | |
 action_result.parameter.body | string | | |
 action_result.parameter.body_is_html | boolean | | |
+action_result.parameter.attachments | string | `sha1` `vault id` | |
 action_result.data.\*.message | string | | |
 summary.total_objects | numeric | | 1 |
 summary.total_objects_successful | numeric | | 1 |
@@ -1309,7 +1324,7 @@ summary.total_objects_successful | numeric | | 1 |
 Get message trace from the server
 
 Type: **investigate** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -1388,7 +1403,7 @@ summary.total_objects_successful | numeric | | 1 |
 Update properties of an email
 
 Type: **generic** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -1462,6 +1477,7 @@ action_result.data.\*.internetMessageId | string | | |
 action_result.data.\*.internetMessageHeaders | string | | |
 action_result.data.\*.attachments | string | | |
 action_result.data.\*.event_id | string | | |
+action_result.data.\*.eml_vault_id | string | | |
 summary.total_objects | numeric | | 1 |
 summary.total_objects_successful | numeric | | 1 |
 
@@ -1677,7 +1693,7 @@ summary.total_objects_successful | numeric | | 1 |
 Delete inbox rule by ID
 
 Type: **contain** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 
@@ -1702,7 +1718,7 @@ summary.total_objects_successful | numeric | | 1 |
 Disable inbox rule by ID
 
 Type: **contain** <br>
-Read only: **True**
+Read only: **False**
 
 #### Action Parameters
 

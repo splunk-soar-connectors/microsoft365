@@ -35,7 +35,11 @@ class ListFoldersSummary(ActionOutput):
     total_folders_returned: int = 0
 
 
-@app.action(description="Get the mail folder hierarchy", action_type="investigate")
+@app.action(
+    description="Get the mail folder hierarchy",
+    action_type="investigate",
+    read_only=True,
+)
 def list_folders(
     params: ListFoldersParams, soar: SOARClient, asset: Asset
 ) -> list[FolderOutput]:

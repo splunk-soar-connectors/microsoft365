@@ -29,7 +29,9 @@ class UserOutput(ActionOutput):
     businessPhones: list[str] | None = None
 
 
-@app.action(description="Retrieve a list of users", action_type="investigate")
+@app.action(
+    description="Retrieve a list of users", action_type="investigate", read_only=True
+)
 def list_users(
     params: ListUsersParams, soar: SOARClient, asset: Asset
 ) -> list[UserOutput]:
