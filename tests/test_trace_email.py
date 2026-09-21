@@ -11,7 +11,6 @@ from src.actions.trace_email import (
     MSGOFFICE365_MESSAGE_TRACE_ENDPOINT,
     TraceEmailParams,
     _build_filter,
-    _escape,
     _or_clause,
     _validate_range,
     trace_email,
@@ -43,14 +42,6 @@ def run_action(params, responses):
         helper.make_rest_call_helper.side_effect = list(responses)
         result = trace_email.__wrapped__(params, soar, MagicMock())
     return result, helper
-
-
-# --------------------------------------------------------------------------- #
-# _escape
-# --------------------------------------------------------------------------- #
-def test_escape_doubles_single_quotes():
-    assert _escape("o'brien") == "o''brien"
-    assert _escape("plain") == "plain"
 
 
 # --------------------------------------------------------------------------- #

@@ -65,9 +65,12 @@ def test_list_addresses_maps_mailbox_type():
     assert result[1].mailboxType == "PublicDL"  # group
 
 
-def test_list_addresses_mail_falls_back_to_upn():
+def test_list_addresses_mail_not_faked_from_upn():
+    # A member with no mail must not have its UPN reported as mail.
     result, _ = run_action(make_params(), [GROUP_RESP, MEMBERS_RESP])
-    assert result[2].mail == "u2@x.com"
+    u2 = next(r for r in result if r.id == "u2")
+    assert u2.mail is None
+    assert u2.userPrincipalName == "u2@x.com"
 
 
 def test_list_addresses_non_recursive_uses_members_endpoint():
@@ -116,3 +119,58 @@ def test_list_addresses_escapes_quotes_in_group_filter():
     _, helper = run_action(make_params(group="O'Brien"), [GROUP_RESP, MEMBERS_RESP])
     first_call = helper.make_rest_call_helper.call_args_list[0]
     assert "O''Brien" in first_call.kwargs["params"]["$filter"]
+
+
+def test_list_addresses_excludes_non_recipient_types():
+    # Devices/service principals are not mail recipients and must be dropped.
+    members = {
+        "value": [
+            {"@odata.type": "#microsoft.graph.user", "id": "u1", "mail": "u1@x.com"},
+            {
+                "@odata.type": "#microsoft.graph.device",
+                "id": "d1",
+                "displayName": "Laptop",
+            },
+            {
+                "@odata.type": "#microsoft.graph.servicePrincipal",
+                "id": "sp1",
+                "displayName": "App",
+            },
+        ]
+    }
+    result, _ = run_action(make_params(), [GROUP_RESP, members])
+    assert [r.id for r in result] == ["u1"]
+
+
+AMBIGUOUS_RESP = {
+    "value": [
+        {
+            "id": "GID1",
+            "displayName": "Team",
+            "mail": "team-a@x.com",
+            "mailNickname": "team-a",
+        },
+        {
+            "id": "GID2",
+            "displayName": "Team",
+            "mail": "team-b@x.com",
+            "mailNickname": "team-b",
+        },
+    ]
+}
+
+
+def test_list_addresses_ambiguous_display_name_raises():
+    # Multiple groups match a shared display name with no exact alias -> error.
+    with pytest.raises(ActionFailure):
+        run_action(make_params(group="Team"), [AMBIGUOUS_RESP])
+
+
+def test_list_addresses_ambiguous_resolves_by_exact_alias():
+    # An exact mail/alias input resolves deterministically among matches.
+    _, helper = run_action(
+        make_params(group="team-b@x.com"), [AMBIGUOUS_RESP, MEMBERS_RESP]
+    )
+    assert (
+        helper.make_rest_call_helper.call_args_list[1].args[0] == "/groups/GID2/members"
+    )

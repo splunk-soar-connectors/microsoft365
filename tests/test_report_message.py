@@ -32,6 +32,7 @@ def test_not_junk_uses_mark_as_not_junk(mocker):
         "/users/analyst@example.com/messages/message-id/markAsNotJunk",
         method="post",
         data=json.dumps({"moveToInbox": True}),
+        beta=True,
     )
 
 

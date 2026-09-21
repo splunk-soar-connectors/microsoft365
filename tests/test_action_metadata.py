@@ -7,8 +7,12 @@ from src.actions import (
     delete_event,
     delete_rule,
     disable_rule,
+    get_folder_id,
+    list_addresses,
+    list_users,
     move_email,
     send_email,
+    trace_email,
     update_email,
 )
 
@@ -27,3 +31,14 @@ def test_mutating_actions_are_not_read_only():
     )
 
     assert all(action.meta.read_only is False for action in actions)
+
+
+def test_investigation_actions_are_read_only():
+    actions = (
+        list_addresses.list_addresses,
+        trace_email.trace_email,
+        get_folder_id.get_folder_id,
+        list_users.list_users,
+    )
+
+    assert all(action.meta.read_only is True for action in actions)

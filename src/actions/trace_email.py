@@ -13,7 +13,7 @@ from ..consts import (
     MSGOFFICE365_MESSAGE_TRACE_ENDPOINT,
     MSGOFFICE365_MESSAGE_TRACE_MAX_TOP,
 )
-from ..helper import GraphPaginationState, MsGraphHelper
+from ..helper import GraphPaginationState, MsGraphHelper, escape_odata_string
 
 
 class TraceEmailParams(Params):
@@ -132,11 +132,6 @@ def _validate_range(email_range: str) -> tuple[int, int]:
     return mini, maxi
 
 
-def _escape(value: str) -> str:
-    """Escape single quotes for use inside an OData string literal."""
-    return value.replace("'", "''")
-
-
 def _validate_iso_utc(value: str, field: str) -> datetime:
     """Validate that a value is a strict ISO-8601 UTC timestamp (YYYY-MM-DDThh:mm:ssZ).
 
@@ -157,7 +152,7 @@ def _or_clause(field: str, raw_value: str) -> str | None:
     values = [v.strip() for v in raw_value.split(",") if v.strip()]
     if not values:
         return None
-    clauses = [f"{field} eq '{_escape(v)}'" for v in values]
+    clauses = [f"{field} eq '{escape_odata_string(v)}'" for v in values]
     if len(clauses) == 1:
         return clauses[0]
     return "(" + " or ".join(clauses) + ")"
@@ -186,13 +181,15 @@ def _build_filter(params: TraceEmailParams) -> str:
     if clause := _or_clause("status", params.status):
         clauses.append(clause)
     if params.message_trace_id:
-        clauses.append(f"id eq '{_escape(params.message_trace_id)}'")
+        clauses.append(f"id eq '{escape_odata_string(params.message_trace_id)}'")
     if params.internet_message_id:
-        clauses.append(f"messageId eq '{_escape(params.internet_message_id)}'")
+        clauses.append(
+            f"messageId eq '{escape_odata_string(params.internet_message_id)}'"
+        )
     if params.to_ip:
         if not is_ip(params.to_ip):
             raise ActionFailure(f"'to ip' is not a valid IP address: {params.to_ip}")
-        clauses.append(f"toIP eq '{_escape(params.to_ip)}'")
+        clauses.append(f"toIP eq '{escape_odata_string(params.to_ip)}'")
     if params.start_date and params.end_date:
         start_dt = _validate_iso_utc(params.start_date, "start date")
         end_dt = _validate_iso_utc(params.end_date, "end date")
@@ -211,8 +208,15 @@ def _build_filter(params: TraceEmailParams) -> str:
 
 
 @app.action(
-    description="Get message trace from the server",
+    description=(
+        "Get the message trace for emails (Exchange Online) via the Microsoft Graph "
+        "beta message-trace API. Requires a one-time message-trace service principal and "
+        "application-only authentication. Query limits: results cover the last 90 days, a "
+        "single query can span at most 10 days, and with no date range the last 48 hours "
+        "are returned."
+    ),
     action_type="investigate",
+    read_only=True,
 )
 def trace_email(
     params: TraceEmailParams, soar: SOARClient, asset: Asset

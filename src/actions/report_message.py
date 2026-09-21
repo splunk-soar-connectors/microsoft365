@@ -60,8 +60,9 @@ def report_message(
     else:
         raise ValueError(f"Unsupported report action: {params.report_action}")
 
-    helper.make_rest_call_helper(endpoint, method="post", data=json.dumps(body))
-
+    helper.make_rest_call_helper(
+        endpoint, method="post", data=json.dumps(body), beta=True
+    )
     soar.set_message(f"Successfully reported message as {params.report_action}")
     return ReportMessageOutput(
         message=f"Successfully reported message as {params.report_action}"

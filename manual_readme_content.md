@@ -291,6 +291,7 @@ Test Connectivity needs at least one of these permissions:
 | update email | `Mail.ReadWrite` | `Mail.ReadWrite` | Requires write permissions |
 | send email | `Mail.Send` | `Mail.Send` + `Mail.ReadWrite` | Mail.ReadWrite is required only when attachments are supplied |
 | block/unblock sender | `Mail.ReadWrite` | `Mail.ReadWrite` | Uses beta API |
+| report message | `Mail.ReadWrite` | `Mail.ReadWrite` | Marks a message junk/notJunk/phish; uses beta API |
 | **Folder Actions** | | | |
 | list folders | `Mail.ReadBasic` | `Mail.Read` | ReadBasic for folder list only |
 | create folder | `Mail.ReadWrite` | `Mail.ReadWrite` | Requires write permissions |
@@ -340,6 +341,15 @@ To use this action:
 1. Provision a one-time service principal in your tenant for Microsoft's message trace application (app ID `8bd644d1-64a1-4d4b-ae52-2e0cbf64e373`). This can be done via Microsoft Graph PowerShell (`New-MgServicePrincipal -BodyParameter @{ appId = "8bd644d1-64a1-4d4b-ae52-2e0cbf64e373" }`) or by POSTing to `https://graph.microsoft.com/v1.0/servicePrincipals` with body `{ "appId": "8bd644d1-64a1-4d4b-ae52-2e0cbf64e373" }`. Provisioning may take several hours to complete, during which the action can return `401 Unauthorized`.
 
 Query constraints imposed by the API: results cover the last **90 days**, a single query cannot span more than **10 days**, and if no date range is provided the API returns the last **48 hours**. Unlike the legacy action, `from_ip` is not a server-side filterable field in Graph, so it is applied client-side against the returned results.
+
+**Authentication:** trace email supports **application-only** (client-credentials) authentication only. Although the shared asset lets you configure delegated (interactive OAuth) authentication, delegated auth is **not supported** for this action and message-trace calls will fail. Configure the asset with app-only auth (client secret or certificate) for this action.
+
+### List Addresses Notes
+
+The **list addresses** action expands a distribution list via Microsoft Graph (`/groups/{id}/members`, or `/groups/{id}/transitiveMembers` when `recursive` is set). Two behavior differences from the legacy office365 (EWS) action are worth noting:
+
+- **Only mail-capable recipients are returned** — users (mailboxes), mail-enabled groups (nested distribution lists), and contacts. Directory objects that are not mail recipients (devices, service principals) are excluded. The `mail` field reflects the member's real email address only; it is left empty when the member has none, and the member's `userPrincipalName` is reported in its own field and never substituted for `mail`.
+- **Dynamic distribution groups are not supported.** Graph resolves the input through `/groups`, which does not expose dynamic distribution groups, so a dynamic (or otherwise unresolvable) distribution list returns a clear "No distribution list found" error. If the display name you provide matches more than one group, specify the exact email address or alias (mailNickname) to disambiguate.
 
 ## User Permissions Setup
 
