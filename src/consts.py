@@ -89,15 +89,6 @@ MSGOFFICE365_VALID_INT_MSG = (
 MSGOFFICE365_NON_NEG_NON_ZERO_INT_MSG = (
     "Please provide a valid non-zero positive integer value in the {param} parameter"
 )
-MSGOFFICE365_AUTH_FAILURE_MSG = [
-    "token is invalid",
-    "Access token has expired",
-    "ExpiredAuthenticationToken",
-    "AuthenticationFailed",
-    "TokenExpired",
-    "InvalidAuthenticationToken",
-    "Lifetime validation failed, the token is expired.",
-]
 MSGOFFICE365_NON_NEG_INT_MSG = (
     "Please provide a valid non-negative integer value in the {param} parameter"
 )

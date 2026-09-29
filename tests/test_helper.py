@@ -25,6 +25,145 @@ def _helper(mocker):
     return helper
 
 
+def _auth_helper(mocker, token_state):
+    saved = {"non_admin_auth": dict(token_state)}
+    auth_state = Mock()
+    auth_state.get_all.side_effect = lambda: dict(saved)
+    auth_state.put_all.side_effect = lambda state: saved.update(state)
+    asset = SimpleNamespace(
+        auth_type="OAuth",
+        admin_access=False,
+        client_secret="client-secret",  # pragma: allowlist secret
+        retry_count=1,
+        retry_wait_time=1,
+        auth_state=auth_state,
+    )
+    helper = MsGraphHelper(Mock(), asset)
+    return helper, saved
+
+
+def test_graph_rejection_renews_legacy_token_and_retries_download(mocker):
+    helper, saved = _auth_helper(
+        mocker, {"access_token": "old", "refresh_token": "refresh"}
+    )
+    helper.get_token()
+    token_response = {
+        "access_token": "new",
+        "refresh_token": "new-refresh",
+        "expires_in": 3600,
+    }
+    renewal = mocker.patch.object(
+        helper, "_generate_oauth_access_token", return_value=token_response
+    )
+    rejected = Mock(
+        status_code=401,
+        headers={"Content-Type": "application/json"},
+        text='{"error":{"code":"InvalidAuthenticationToken","message":"Invalid token lifetime"}}',
+    )
+    rejected.json.return_value = {
+        "error": {
+            "code": "InvalidAuthenticationToken",
+            "message": "Invalid token lifetime",
+        }
+    }
+    accepted = Mock(status_code=200, headers={}, text="email contents")
+    request = mocker.patch("src.helper.requests.get", side_effect=[rejected, accepted])
+
+    assert (
+        helper.make_rest_call_helper("/me/messages/1/$value", download=True)
+        == "email contents"
+    )
+    assert [
+        call.kwargs["headers"]["Authorization"] for call in request.call_args_list
+    ] == [
+        "Bearer old",
+        "Bearer new",
+    ]
+    renewal.assert_called_once()
+    assert saved["non_admin_auth"]["expires_at"] > 0
+    assert saved["non_admin_auth"]["refresh_token"] == "new-refresh"
+
+
+def test_expired_token_renews_before_graph_request(mocker):
+    helper, saved = _auth_helper(
+        mocker, {"access_token": "old", "refresh_token": "refresh", "expires_at": 10}
+    )
+    mocker.patch("src.helper.time.time", return_value=100)
+    mocker.patch.object(
+        helper,
+        "_generate_oauth_access_token",
+        return_value={
+            "access_token": "new",
+            "refresh_token": "next",
+            "expires_in": 3600,
+        },
+    )
+    helper.get_token()
+
+    assert helper._access_token == "new"
+    assert saved["non_admin_auth"]["expires_at"] == 3700
+
+
+def test_renewal_keeps_existing_refresh_token_when_response_omits_it(mocker):
+    helper, saved = _auth_helper(
+        mocker, {"access_token": "old", "refresh_token": "refresh", "expires_at": 10}
+    )
+    mocker.patch("src.helper.time.time", return_value=100)
+    mocker.patch.object(
+        helper,
+        "_generate_oauth_access_token",
+        return_value={"access_token": "new", "expires_in": 3600},
+    )
+
+    helper.get_token()
+
+    assert saved["non_admin_auth"]["refresh_token"] == "refresh"
+
+
+def test_failed_renewal_keeps_saved_token_and_does_not_retry_graph(mocker):
+    helper, saved = _auth_helper(
+        mocker, {"access_token": "old", "refresh_token": "refresh"}
+    )
+    helper.get_token()
+    mocker.patch.object(
+        helper,
+        "_generate_oauth_access_token",
+        side_effect=ActionFailure("renewal failed"),
+    )
+    rejected = Mock(
+        status_code=401,
+        headers={"Content-Type": "application/json"},
+        text='{"error":{"code":"InvalidAuthenticationToken"}}',
+    )
+    rejected.json.return_value = {"error": {"code": "InvalidAuthenticationToken"}}
+    request = mocker.patch("src.helper.requests.get", return_value=rejected)
+
+    with pytest.raises(ActionFailure, match="renewal failed"):
+        helper.make_rest_call_helper("/me")
+
+    request.assert_called_once()
+    assert saved["non_admin_auth"]["access_token"] == "old"
+
+
+def test_other_graph_401_does_not_renew(mocker):
+    helper, _ = _auth_helper(mocker, {"access_token": "old"})
+    helper.get_token()
+    renewal = mocker.patch.object(helper, "_generate_oauth_access_token")
+    response = Mock(
+        status_code=401,
+        headers={"Content-Type": "application/json"},
+        text='{"error":{"code":"Authorization_RequestDenied"}}',
+    )
+    response.json.return_value = {"error": {"code": "Authorization_RequestDenied"}}
+    request = mocker.patch("src.helper.requests.get", return_value=response)
+
+    with pytest.raises(ActionFailure, match="API Error 401"):
+        helper.make_rest_call_helper("/me")
+
+    renewal.assert_not_called()
+    request.assert_called_once()
+
+
 def test_validate_graph_next_link_accepts_graph_pagination_url():
     next_link = "https://graph.microsoft.com/v1.0/users?$skiptoken=abc"
 
