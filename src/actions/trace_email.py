@@ -161,10 +161,10 @@ def _or_clause(field: str, raw_value: str) -> str | None:
 def _build_filter(params: TraceEmailParams) -> str:
     """Translate the action parameters into a Microsoft Graph $filter string.
 
-    Note: Graph supports filtering on id, messageId, receivedDateTime,
-    recipientAddress, senderAddress, status, subject and toIP. from_ip is not
-    a filterable property, so it is applied client-side against the returned
-    fromIP field to preserve parity with the legacy office365 action.
+    Graph supports $filter (eq) on fromIP, id, messageId, recipientAddress,
+    senderAddress, status and toIP, $filter (ge/le) on receivedDateTime, and
+    $filter (contains/startsWith/endsWith) on subject, so every supplied
+    parameter is pushed into the server-side filter.
     """
     if (params.start_date and not params.end_date) or (
         params.end_date and not params.start_date
@@ -186,6 +186,12 @@ def _build_filter(params: TraceEmailParams) -> str:
         clauses.append(
             f"messageId eq '{escape_odata_string(params.internet_message_id)}'"
         )
+    if params.from_ip:
+        if not is_ip(params.from_ip):
+            raise ActionFailure(
+                f"'from ip' is not a valid IP address: {params.from_ip}"
+            )
+        clauses.append(f"fromIP eq '{escape_odata_string(params.from_ip)}'")
     if params.to_ip:
         if not is_ip(params.to_ip):
             raise ActionFailure(f"'to ip' is not a valid IP address: {params.to_ip}")
@@ -193,11 +199,14 @@ def _build_filter(params: TraceEmailParams) -> str:
     if params.start_date and params.end_date:
         start_dt = _validate_iso_utc(params.start_date, "start date")
         end_dt = _validate_iso_utc(params.end_date, "end date")
+        now = datetime.now(UTC)
         if end_dt < start_dt:
             raise ActionFailure("'end date' must not be earlier than 'start date'")
+        if end_dt > now:
+            raise ActionFailure("'end date' must not be in the future")
         if end_dt - start_dt > timedelta(days=10):
             raise ActionFailure("The date range must not exceed 10 days")
-        if start_dt < datetime.now(UTC) - timedelta(days=90):
+        if start_dt < now - timedelta(days=90):
             raise ActionFailure("'start date' must be within the last 90 days")
         clauses.append(
             f"receivedDateTime ge {params.start_date} and "
@@ -210,7 +219,7 @@ def _build_filter(params: TraceEmailParams) -> str:
 @app.action(
     description=(
         "Get the message trace for emails (Exchange Online) via the Microsoft Graph "
-        "beta message-trace API. Requires a one-time message-trace service principal and "
+        "v1.0 message-trace API. Requires a one-time message-trace service principal and "
         "application-only authentication. Query limits: results cover the last 90 days, a "
         "single query can span at most 10 days, and with no date range the last 48 hours "
         "are returned."
@@ -225,9 +234,6 @@ def trace_email(
     if params.range:
         mini, maxi = _validate_range(params.range)
 
-    if params.from_ip and not is_ip(params.from_ip):
-        raise ActionFailure(f"'from ip' is not a valid IP address: {params.from_ip}")
-
     # Validate and build the filter before authenticating so invalid input fails fast.
     filter_str = _build_filter(params)
 
@@ -238,7 +244,6 @@ def trace_email(
     if filter_str:
         api_params["$filter"] = filter_str
 
-    # The message trace API currently lives under the Graph beta endpoint.
     results: list[dict] = []
     next_link = None
     pagination_state = GraphPaginationState()
@@ -248,20 +253,13 @@ def trace_email(
             params=api_params,
             nextLink=next_link,
             pagination_state=pagination_state,
-            beta=True,
         )
         results.extend(resp.get("value", []))
 
         next_link = resp.get("@odata.nextLink")
-        # Stop early once we have enough rows, but only when we are not doing a
-        # client-side from_ip filter (which needs the full result set first).
-        if not next_link or (not params.from_ip and len(results) > maxi):
+        if not next_link or len(results) > maxi:
             break
         api_params = None
-
-    # from_ip is not filterable server-side; apply it here for parity.
-    if params.from_ip:
-        results = [r for r in results if r.get("fromIP") == params.from_ip]
 
     if params.widget_filter:
         for row in results:

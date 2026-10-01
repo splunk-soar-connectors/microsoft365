@@ -100,9 +100,14 @@ def test_build_filter_combines_conditions():
     assert f"receivedDateTime ge {start} and receivedDateTime le {end}" in f
 
 
-def test_build_filter_excludes_from_ip():
-    # from_ip is not server-side filterable in Graph.
-    assert "fromIP" not in _build_filter(make_params(from_ip="8.8.8.8"))
+def test_build_filter_includes_from_ip():
+    # from_ip is server-side filterable in Graph (fromIP supports $filter eq).
+    assert "fromIP eq '8.8.8.8'" in _build_filter(make_params(from_ip="8.8.8.8"))
+
+
+def test_build_filter_rejects_invalid_from_ip():
+    with pytest.raises(ActionFailure):
+        _build_filter(make_params(from_ip="not-an-ip"))
 
 
 def test_build_filter_single_field_clauses():
@@ -138,6 +143,12 @@ def test_build_filter_rejects_start_older_than_90_days():
         _build_filter(make_params(start_date=_iso(100), end_date=_iso(95)))
 
 
+def test_build_filter_rejects_future_end_date():
+    future = (datetime.now(UTC) + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with pytest.raises(ActionFailure, match="future"):
+        _build_filter(make_params(start_date=_iso(1), end_date=future))
+
+
 def test_build_filter_rejects_invalid_to_ip():
     with pytest.raises(ActionFailure):
         _build_filter(make_params(to_ip="not-an-ip"))
@@ -146,24 +157,32 @@ def test_build_filter_rejects_invalid_to_ip():
 # --------------------------------------------------------------------------- #
 # trace_email handler
 # --------------------------------------------------------------------------- #
-def test_trace_email_uses_beta_message_trace_endpoint():
+def test_trace_email_uses_v1_message_trace_endpoint():
     _, helper = run_action(make_params(), [{"value": []}])
     call = helper.make_rest_call_helper.call_args
-    assert call.kwargs["beta"] is True
+    # The message trace API now lives under the Graph v1.0 endpoint (no beta flag).
+    assert not call.kwargs.get("beta")
     assert call.args[0] == MSGOFFICE365_MESSAGE_TRACE_ENDPOINT
 
 
-def test_trace_email_paginates_and_filters_from_ip():
+def test_trace_email_pushes_from_ip_into_server_side_filter():
+    resp = {"value": [{"id": "1", "fromIP": "8.8.8.8"}]}
+    _, helper = run_action(make_params(from_ip="8.8.8.8"), [resp])
+    first_call = helper.make_rest_call_helper.call_args_list[0]
+    assert "fromIP eq '8.8.8.8'" in first_call.kwargs["params"]["$filter"]
+
+
+def test_trace_email_paginates_across_pages():
     page1 = {
         "value": [
-            {"id": "1", "messageId": "<m1>", "fromIP": "8.8.8.8"},
-            {"id": "2", "messageId": "<m2>", "fromIP": "9.9.9.9"},
+            {"id": "1", "messageId": "<m1>"},
+            {"id": "2", "messageId": "<m2>"},
         ],
         "@odata.nextLink": "NEXT",
     }
-    page2 = {"value": [{"id": "3", "messageId": "<m3>", "fromIP": "8.8.8.8"}]}
-    result, helper = run_action(make_params(from_ip="8.8.8.8"), [page1, page2])
-    assert [r.id for r in result] == ["1", "3"]
+    page2 = {"value": [{"id": "3", "messageId": "<m3>"}]}
+    result, helper = run_action(make_params(), [page1, page2])
+    assert [r.id for r in result] == ["1", "2", "3"]
     # Every paginated call must pass a GraphPaginationState (the helper contract).
     for call in helper.make_rest_call_helper.call_args_list:
         assert isinstance(call.kwargs.get("pagination_state"), GraphPaginationState)
