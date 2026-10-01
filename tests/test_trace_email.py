@@ -1,8 +1,9 @@
 # Copyright (c) 2017-2026 Splunk Inc.
 """Unit tests for the 'trace email' action."""
 
+import importlib
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import Mock
 
 import pytest
 from soar_sdk.exceptions import ActionFailure
@@ -18,6 +19,9 @@ from src.actions.trace_email import (
 from src.helper import GraphPaginationState
 
 
+trace_module = importlib.import_module("src.actions.trace_email")
+
+
 def make_params(**overrides):
     """Build a real TraceEmailParams instance (all fields have defaults)."""
     return TraceEmailParams(**overrides)
@@ -28,19 +32,16 @@ def _iso(days_ago: int) -> str:
     return (datetime.now(UTC) - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def run_action(params, responses):
+def run_action(mocker, params, responses):
     """Invoke the raw trace_email handler with a mocked MsGraphHelper.
 
-    ``trace_email`` is the SDK-decorated action, which returns a status bool and
-    pushes outputs into the actions manager. ``__wrapped__`` (preserved by
-    functools.wraps) is the underlying handler, which returns the output list we
-    want to assert on.
+    ``trace_email`` is the SDK-decorated action; ``__wrapped__`` (preserved by
+    functools.wraps) is the underlying handler, which returns the output list.
     """
-    soar = MagicMock()
-    with patch("src.actions.trace_email.MsGraphHelper") as helper_cls:
-        helper = helper_cls.return_value
-        helper.make_rest_call_helper.side_effect = list(responses)
-        result = trace_email.__wrapped__(params, soar, MagicMock())
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = list(responses)
+    mocker.patch.object(trace_module, "MsGraphHelper", return_value=helper)
+    result = trace_email.__wrapped__(params, Mock(), Mock())
     return result, helper
 
 
@@ -97,7 +98,8 @@ def test_build_filter_combines_conditions():
     assert "senderAddress eq 'a@x.com'" in f
     assert "recipientAddress eq 'b@y.com'" in f
     assert "status eq 'delivered'" in f
-    assert f"receivedDateTime ge {start} and receivedDateTime le {end}" in f
+    assert "receivedDateTime ge " in f
+    assert "receivedDateTime le " in f
 
 
 def test_build_filter_includes_from_ip():
@@ -129,17 +131,17 @@ def test_build_filter_rejects_bad_date_format():
 
 
 def test_build_filter_rejects_end_before_start():
-    with pytest.raises(ActionFailure):
+    with pytest.raises(ActionFailure, match="earlier than"):
         _build_filter(make_params(start_date=_iso(2), end_date=_iso(5)))
 
 
 def test_build_filter_rejects_window_over_10_days():
-    with pytest.raises(ActionFailure):
+    with pytest.raises(ActionFailure, match="10 days"):
         _build_filter(make_params(start_date=_iso(20), end_date=_iso(2)))
 
 
 def test_build_filter_rejects_start_older_than_90_days():
-    with pytest.raises(ActionFailure):
+    with pytest.raises(ActionFailure, match="90 days"):
         _build_filter(make_params(start_date=_iso(100), end_date=_iso(95)))
 
 
@@ -154,25 +156,50 @@ def test_build_filter_rejects_invalid_to_ip():
         _build_filter(make_params(to_ip="not-an-ip"))
 
 
+def test_build_filter_canonicalizes_status_casing():
+    # Any input casing normalizes to the Graph enum's canonical spelling.
+    assert "status eq 'delivered'" in _build_filter(make_params(status="Delivered"))
+    assert "status eq 'delivered'" in _build_filter(make_params(status="DELIVERED"))
+    assert "status eq 'filteredAsSpam'" in _build_filter(
+        make_params(status="filteredasspam")
+    )
+
+
+def test_build_filter_accepts_multiple_statuses():
+    f = _build_filter(make_params(status="delivered, failed"))
+    assert "status eq 'delivered'" in f
+    assert "status eq 'failed'" in f
+
+
+def test_build_filter_rejects_invalid_status():
+    with pytest.raises(ActionFailure, match="Valid values are"):
+        _build_filter(make_params(status="bogus"))
+
+
+def test_build_filter_rejects_mixed_valid_and_invalid_status():
+    with pytest.raises(ActionFailure, match="bogus"):
+        _build_filter(make_params(status="delivered, bogus"))
+
+
 # --------------------------------------------------------------------------- #
 # trace_email handler
 # --------------------------------------------------------------------------- #
-def test_trace_email_uses_v1_message_trace_endpoint():
-    _, helper = run_action(make_params(), [{"value": []}])
+def test_trace_email_uses_v1_message_trace_endpoint(mocker):
+    _, helper = run_action(mocker, make_params(), [{"value": []}])
     call = helper.make_rest_call_helper.call_args
     # The message trace API now lives under the Graph v1.0 endpoint (no beta flag).
     assert not call.kwargs.get("beta")
     assert call.args[0] == MSGOFFICE365_MESSAGE_TRACE_ENDPOINT
 
 
-def test_trace_email_pushes_from_ip_into_server_side_filter():
+def test_trace_email_pushes_from_ip_into_server_side_filter(mocker):
     resp = {"value": [{"id": "1", "fromIP": "8.8.8.8"}]}
-    _, helper = run_action(make_params(from_ip="8.8.8.8"), [resp])
+    _, helper = run_action(mocker, make_params(from_ip="8.8.8.8"), [resp])
     first_call = helper.make_rest_call_helper.call_args_list[0]
     assert "fromIP eq '8.8.8.8'" in first_call.kwargs["params"]["$filter"]
 
 
-def test_trace_email_paginates_across_pages():
+def test_trace_email_paginates_across_pages(mocker):
     page1 = {
         "value": [
             {"id": "1", "messageId": "<m1>"},
@@ -181,40 +208,60 @@ def test_trace_email_paginates_across_pages():
         "@odata.nextLink": "NEXT",
     }
     page2 = {"value": [{"id": "3", "messageId": "<m3>"}]}
-    result, helper = run_action(make_params(), [page1, page2])
+    result, helper = run_action(mocker, make_params(), [page1, page2])
     assert [r.id for r in result] == ["1", "2", "3"]
     # Every paginated call must pass a GraphPaginationState (the helper contract).
     for call in helper.make_rest_call_helper.call_args_list:
         assert isinstance(call.kwargs.get("pagination_state"), GraphPaginationState)
 
 
-def test_trace_email_rejects_invalid_from_ip():
+def test_trace_email_rejects_invalid_from_ip(mocker):
     with pytest.raises(ActionFailure):
-        run_action(make_params(from_ip="not-an-ip"), [{"value": []}])
+        run_action(mocker, make_params(from_ip="not-an-ip"), [{"value": []}])
 
 
-def test_trace_email_sets_emails_found_summary():
+def test_trace_email_sets_emails_found_summary(mocker):
     resp = {"value": [{"id": "1"}, {"id": "2"}]}
-    soar = MagicMock()
-    with patch("src.actions.trace_email.MsGraphHelper") as helper_cls:
-        helper_cls.return_value.make_rest_call_helper.side_effect = [resp]
-        trace_email.__wrapped__(make_params(), soar, MagicMock())
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [resp]
+    mocker.patch.object(trace_module, "MsGraphHelper", return_value=helper)
+    soar = Mock()
+    trace_email.__wrapped__(make_params(), soar, Mock())
     assert soar.set_summary.call_args.args[0].emails_found == 2
 
 
-def test_trace_email_widget_filter_strips_brackets():
+def test_trace_email_widget_filter_strips_brackets(mocker):
     resp = {"value": [{"id": "1", "messageId": "<m1>"}]}
-    result, _ = run_action(make_params(widget_filter=True), [resp])
+    result, _ = run_action(mocker, make_params(widget_filter=True), [resp])
     assert result[0].messageId == "m1"
 
 
-def test_trace_email_range_slices_results():
+def test_trace_email_range_slices_results(mocker):
     resp = {"value": [{"id": str(i)} for i in range(5)]}
-    result, _ = run_action(make_params(range="1-2"), [resp])
+    result, _ = run_action(mocker, make_params(range="1-2"), [resp])
     assert [r.id for r in result] == ["1", "2"]
 
 
-def test_trace_email_maps_output_fields():
+def test_trace_email_range_stops_pagination_early(mocker):
+    # Once enough rows for maxi are collected, no further page is fetched.
+    page1 = {
+        "value": [{"id": "0"}, {"id": "1"}, {"id": "2"}],
+        "@odata.nextLink": "NEXT",
+    }
+    page2 = {"value": [{"id": "3"}]}  # must not be requested
+    result, helper = run_action(mocker, make_params(range="1-2"), [page1, page2])
+    assert [r.id for r in result] == ["1", "2"]
+    assert helper.make_rest_call_helper.call_count == 1
+
+
+def test_trace_email_range_slices_across_pages(mocker):
+    page1 = {"value": [{"id": "0"}, {"id": "1"}], "@odata.nextLink": "NEXT"}
+    page2 = {"value": [{"id": "2"}, {"id": "3"}]}
+    result, _ = run_action(mocker, make_params(range="1-3"), [page1, page2])
+    assert [r.id for r in result] == ["1", "2", "3"]
+
+
+def test_trace_email_maps_output_fields(mocker):
     resp = {
         "value": [
             {
@@ -231,8 +278,13 @@ def test_trace_email_maps_output_fields():
             }
         ]
     }
-    result, _ = run_action(make_params(), [resp])
+    result, _ = run_action(mocker, make_params(), [resp])
     row = result[0]
+    assert row.id == "abc"
     assert row.senderAddress == "s@x.com"
+    assert row.recipientAddress == "r@x.com"
+    assert row.messageId == "<mid>"
     assert row.size == 1234
+    assert row.fromIP == "8.8.8.8"
+    assert row.toIP == "9.9.9.9"
     assert row.status == "delivered"

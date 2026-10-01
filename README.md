@@ -301,7 +301,7 @@ Test Connectivity needs at least one of these permissions:
 | update email | `Mail.ReadWrite` | `Mail.ReadWrite` | Requires write permissions |
 | send email | `Mail.Send` | `Mail.Send` + `Mail.ReadWrite` | Mail.ReadWrite is required only when attachments are supplied |
 | block/unblock sender | `Mail.ReadWrite` | `Mail.ReadWrite` | Uses beta API |
-| report message | `Mail.ReadWrite` | `Mail.ReadWrite` | Marks a message junk/notJunk/phish; uses beta API |
+| report message | `Mail.ReadWrite` | `Mail.ReadWrite` | Reports a message as junk/notJunk/phish via the Graph `reportMessage` beta API |
 | **Folder Actions** | | | |
 | list folders | `Mail.ReadBasic` | `Mail.Read` | ReadBasic for folder list only |
 | create folder | `Mail.ReadWrite` | `Mail.ReadWrite` | Requires write permissions |
@@ -352,14 +352,16 @@ To use this action:
 
 Query constraints imposed by the API: results cover the last **90 days**, a single query cannot span more than **10 days**, the end date cannot be in the future, and if no date range is provided the API returns the last **48 hours**. All supplied filters (including `from_ip`) are applied server-side by Graph.
 
+The `status` parameter accepts one or more comma-separated values from: `gettingStatus`, `pending`, `failed`, `delivered`, `expanded`, `quarantined`, `filteredAsSpam`, `unknownFutureValue` (case-insensitive). Any other value is rejected with a clear error listing the valid options.
+
 **Authentication:** trace email supports **application-only** (client-credentials) authentication only. Although the shared asset lets you configure delegated (interactive OAuth) authentication, delegated auth is **not supported** for this action and message-trace calls will fail. Configure the asset with app-only auth (client secret or certificate) for this action.
 
 ### List Addresses Notes
 
 The **list addresses** action expands a distribution list via Microsoft Graph (`/groups/{id}/members`, or `/groups/{id}/transitiveMembers` when `recursive` is set). Two behavior differences from the legacy office365 (EWS) action are worth noting:
 
-- **Only mail-capable recipients are returned** — users (mailboxes), mail-enabled groups (nested distribution lists), and contacts. Directory objects that are not mail recipients (devices, service principals) are excluded. The `mail` field reflects the member's real email address only; it is left empty when the member has none, and the member's `userPrincipalName` is reported in its own field and never substituted for `mail`.
-- **Dynamic distribution groups are not supported.** Graph resolves the input through `/groups`, which does not expose dynamic distribution groups, so a dynamic (or otherwise unresolvable) distribution list returns a clear "No distribution list found" error. If the display name you provide matches more than one group, specify the exact email address or alias (mailNickname) to disambiguate.
+- **Only mail-capable recipients are returned** — users (mailboxes), mail-enabled groups (nested distribution lists), and contacts. Directory objects that are not mail recipients (devices, service principals) are excluded, and members without an email address are omitted entirely. The `mail` field reflects the member's real email address only; the member's `userPrincipalName` is reported in its own field and never substituted for `mail`.
+- **Dynamic distribution groups are not supported.** Graph resolves the input through `/groups` and only matches mail-enabled groups, so a dynamic distribution group, a mail-disabled security group, or an otherwise unresolvable list returns a clear "No mail-enabled distribution list found" error. If the display name you provide matches more than one group, specify the exact email address or alias (mailNickname) to disambiguate.
 
 ## User Permissions Setup
 
@@ -665,7 +667,7 @@ VARIABLE | REQUIRED | TYPE | DESCRIPTION
 [make request](#action-make-request) - make request <br>
 [move email](#action-move-email) - Move an email to a folder <br>
 [oof check](#action-oof-check) - Get user's out of office status <br>
-[report message](#action-report-message) - Add the sender email into the report <br>
+[report message](#action-report-message) - Report a message as junk, not junk, or phishing to improve mail filtering <br>
 [send email](#action-send-email) - Send an email, optionally attaching files from the SOAR Vault <br>
 [trace email](#action-trace-email) - Get the message trace for emails (Exchange Online) via the Microsoft Graph v1.0 message-trace API. Requires a one-time message-trace service principal and application-only authentication. Query limits: results cover the last 90 days, a single query can span at most 10 days, and with no date range the last 48 hours are returned. <br>
 [unblock sender](#action-unblock-sender) - Remove a sender from the blocked senders list <br>
@@ -1263,7 +1265,7 @@ summary.total_objects_successful | numeric | | 1 |
 
 ## action: 'report message'
 
-Add the sender email into the report
+Report a message as junk, not junk, or phishing to improve mail filtering
 
 Type: **contain** <br>
 Read only: **False**
@@ -1272,10 +1274,10 @@ Read only: **False**
 
 PARAMETER | REQUIRED | DESCRIPTION | TYPE | CONTAINS
 --------- | -------- | ----------- | ---- | --------
-**message_id** | required | Message ID to pick the sender of | string | `msgoffice365 message id` |
-**user_id** | required | User ID to base the action of | string | `msgoffice365 user id` `msgoffice365 user principal name` `email` |
+**message_id** | required | The ID of the message to report | string | `msgoffice365 message id` |
+**user_id** | required | The user ID or principal name of the mailbox that holds the message | string | `msgoffice365 user id` `msgoffice365 user principal name` `email` |
 **is_message_move_requested** | optional | Indicates whether the message should be moved out of current folder | boolean | |
-**report_action** | required | Indicates the type of action to be reported on the message | string | |
+**report_action** | required | The type of report to submit for the message | string | |
 
 #### Action Output
 
@@ -1342,7 +1344,7 @@ PARAMETER | REQUIRED | DESCRIPTION | TYPE | CONTAINS
 --------- | -------- | ----------- | ---- | --------
 **sender_address** | optional | The SMTP email address of the user the message was purportedly from. You can specify multiple values separated by commas. | string | `email` |
 **recipient_address** | optional | The SMTP email address of the user that the message was addressed to. You can specify multiple values separated by commas. | string | `email` |
-**status** | optional | The status corresponds to the Detail field of the last processing step recorded for the message. You can specify multiple values separated by commas. | string | |
+**status** | optional | Filter by the message delivery status. One or more comma-separated values from: gettingStatus, pending, failed, delivered, expanded, quarantined, filteredAsSpam, unknownFutureValue. | string | |
 **message_trace_id** | optional | An identifier used to get the detailed message transfer trace information | string | `office 365 trace id` |
 **start_date** | optional | Start date of the date range (ISO 8601, e.g. 2026-01-20T00:00:00Z) | string | |
 **end_date** | optional | End date of the date range (ISO 8601, e.g. 2026-01-23T00:00:00Z) | string | |

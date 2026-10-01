@@ -44,11 +44,12 @@ class DistributionListMember(ActionOutput):
 def _resolve_group_id(helper: MsGraphHelper, group: str) -> str:
     """Resolve a DL email/display name to a group id; error if ambiguous."""
     escaped = escape_odata_string(group)
+    # Match only mail-enabled groups; parens are required as OData binds `and` over `or`.
     api_params = {
         "$filter": (
-            f"mail eq '{escaped}' or "
+            f"(mail eq '{escaped}' or "
             f"displayName eq '{escaped}' or "
-            f"mailNickname eq '{escaped}'"
+            f"mailNickname eq '{escaped}') and mailEnabled eq true"
         ),
         "$select": "id,displayName,mail,mailNickname",
     }
@@ -58,7 +59,8 @@ def _resolve_group_id(helper: MsGraphHelper, group: str) -> str:
     while True:
         resp = helper.make_rest_call_helper(
             "/groups",
-            params=api_params,
+            # nextLink already carries the query; send params only on the first page.
+            params=api_params if next_link is None else None,
             nextLink=next_link,
             pagination_state=pagination_state,
         )
@@ -68,10 +70,11 @@ def _resolve_group_id(helper: MsGraphHelper, group: str) -> str:
             break
     if not value:
         raise ActionFailure(
-            f"No distribution list found matching '{group}'. The input might not be a "
-            "valid distribution list, or it may be a dynamic distribution group, which "
-            "Microsoft Graph does not expose (dynamic distribution groups are not "
-            "supported by this action)."
+            f"No mail-enabled distribution list found matching '{group}'. The input "
+            "might not be a valid distribution list, it may be a mail-disabled security "
+            "group, or it may be a dynamic distribution group, which Microsoft Graph "
+            "does not expose (dynamic distribution groups are not supported by this "
+            "action)."
         )
     if len(value) == 1:
         return value[0]["id"]
@@ -106,9 +109,7 @@ def list_addresses(
 
     group_id = _resolve_group_id(helper, params.group)
 
-    # Graph exposes transitive (recursive) membership through a dedicated
-    # endpoint, so we let the service do the recursion when requested rather
-    # than walking the hierarchy ourselves.
+    # transitiveMembers lets Graph expand nested lists; members is direct-only.
     membership = "transitiveMembers" if params.recursive else "members"
     endpoint = f"/groups/{group_id}/{membership}"
 
@@ -130,12 +131,15 @@ def list_addresses(
         # Skip non-recipient objects (devices, service principals).
         if odata_type not in RECIPIENT_TYPES:
             continue
+        # Skip members with no SMTP address; never substitute the UPN for mail.
+        mail = member.get("mail")
+        if not mail:
+            continue
         results.append(
             DistributionListMember(
                 id=member.get("id"),
                 displayName=member.get("displayName"),
-                # Real mail only; never substitute the UPN.
-                mail=member.get("mail"),
+                mail=mail,
                 userPrincipalName=member.get("userPrincipalName"),
                 mailboxType=MEMBER_TYPE_MAP[odata_type],
             )

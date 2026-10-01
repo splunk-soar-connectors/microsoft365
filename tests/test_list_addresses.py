@@ -1,7 +1,8 @@
 # Copyright (c) 2017-2026 Splunk Inc.
 """Unit tests for the 'list addresses' action."""
 
-from unittest.mock import MagicMock, patch
+import importlib
+from unittest.mock import Mock
 
 import pytest
 from soar_sdk.exceptions import ActionFailure
@@ -10,22 +11,23 @@ from src.actions.list_addresses import ListAddressesParams, list_addresses
 from src.helper import GraphPaginationState
 
 
+list_addresses_module = importlib.import_module("src.actions.list_addresses")
+
+
 def make_params(group="dl@x.com", recursive=False):
     return ListAddressesParams(group=group, recursive=recursive)
 
 
-def run_action(params, responses):
+def run_action(mocker, params, responses):
     """Invoke the raw list_addresses handler with a mocked MsGraphHelper.
 
-    ``list_addresses`` is the SDK-decorated action, which returns a status bool.
-    ``__wrapped__`` (preserved by functools.wraps) is the underlying handler,
-    which returns the output list we want to assert on.
+    ``list_addresses`` is the SDK-decorated action; ``__wrapped__`` (preserved by
+    functools.wraps) is the underlying handler, which returns the output list.
     """
-    soar = MagicMock()
-    with patch("src.actions.list_addresses.MsGraphHelper") as helper_cls:
-        helper = helper_cls.return_value
-        helper.make_rest_call_helper.side_effect = list(responses)
-        result = list_addresses.__wrapped__(params, soar, MagicMock())
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = list(responses)
+    mocker.patch.object(list_addresses_module, "MsGraphHelper", return_value=helper)
+    result = list_addresses.__wrapped__(params, Mock(), Mock())
     return result, helper
 
 
@@ -54,41 +56,69 @@ MEMBERS_RESP = {
 }
 
 
-def test_list_addresses_returns_all_members():
-    result, _ = run_action(make_params(), [GROUP_RESP, MEMBERS_RESP])
-    assert len(result) == 3
+def test_list_addresses_returns_mail_capable_members(mocker):
+    # u1 and g1 have mail; u2 has only a UPN and is skipped.
+    result, _ = run_action(mocker, make_params(), [GROUP_RESP, MEMBERS_RESP])
+    assert [r.id for r in result] == ["u1", "g1"]
 
 
-def test_list_addresses_maps_mailbox_type():
-    result, _ = run_action(make_params(), [GROUP_RESP, MEMBERS_RESP])
+def test_list_addresses_maps_mailbox_type(mocker):
+    result, _ = run_action(mocker, make_params(), [GROUP_RESP, MEMBERS_RESP])
     assert result[0].mailboxType == "Mailbox"  # user
     assert result[1].mailboxType == "PublicDL"  # group
 
 
-def test_list_addresses_mail_not_faked_from_upn():
-    # A member with no mail must not have its UPN reported as mail.
-    result, _ = run_action(make_params(), [GROUP_RESP, MEMBERS_RESP])
-    u2 = next(r for r in result if r.id == "u2")
-    assert u2.mail is None
-    assert u2.userPrincipalName == "u2@x.com"
+def test_list_addresses_maps_contact_type(mocker):
+    members = {
+        "value": [
+            {
+                "@odata.type": "#microsoft.graph.orgContact",
+                "id": "c1",
+                "displayName": "Contact One",
+                "mail": "c1@x.com",
+            }
+        ]
+    }
+    result, _ = run_action(mocker, make_params(), [GROUP_RESP, members])
+    assert result[0].mailboxType == "Contact"
+    assert result[0].mail == "c1@x.com"
 
 
-def test_list_addresses_non_recursive_uses_members_endpoint():
-    _, helper = run_action(make_params(recursive=False), [GROUP_RESP, MEMBERS_RESP])
+def test_list_addresses_skips_members_without_mail(mocker):
+    # A member with no mail is dropped, and its UPN is never reported as mail.
+    result, _ = run_action(mocker, make_params(), [GROUP_RESP, MEMBERS_RESP])
+    assert all(r.id != "u2" for r in result)
+    assert all(r.mail for r in result)
+
+
+def test_list_addresses_resolution_requires_mail_enabled(mocker):
+    _, helper = run_action(mocker, make_params(), [GROUP_RESP, MEMBERS_RESP])
+    group_filter = helper.make_rest_call_helper.call_args_list[0].kwargs["params"][
+        "$filter"
+    ]
+    assert "mailEnabled eq true" in group_filter
+
+
+def test_list_addresses_non_recursive_uses_members_endpoint(mocker):
+    _, helper = run_action(
+        mocker, make_params(recursive=False), [GROUP_RESP, MEMBERS_RESP]
+    )
     assert (
         helper.make_rest_call_helper.call_args_list[1].args[0] == "/groups/GID/members"
     )
 
 
-def test_list_addresses_recursive_uses_transitive_members_endpoint():
-    _, helper = run_action(make_params(recursive=True), [GROUP_RESP, MEMBERS_RESP])
+def test_list_addresses_recursive_uses_transitive_members_endpoint(mocker):
+    _, helper = run_action(
+        mocker, make_params(recursive=True), [GROUP_RESP, MEMBERS_RESP]
+    )
     assert (
         helper.make_rest_call_helper.call_args_list[1].args[0]
         == "/groups/GID/transitiveMembers"
     )
 
 
-def test_list_addresses_paginates_members():
+def test_list_addresses_paginates_members(mocker):
     page1 = {
         "value": [
             {"@odata.type": "#microsoft.graph.user", "id": "u1", "mail": "u1@x.com"}
@@ -100,7 +130,7 @@ def test_list_addresses_paginates_members():
             {"@odata.type": "#microsoft.graph.user", "id": "u2", "mail": "u2@x.com"}
         ]
     }
-    result, helper = run_action(make_params(), [GROUP_RESP, page1, page2])
+    result, helper = run_action(mocker, make_params(), [GROUP_RESP, page1, page2])
     assert [r.id for r in result] == ["u1", "u2"]
     # The member-listing calls (after the group-resolution call) must pass a
     # GraphPaginationState, per the helper contract.
@@ -110,18 +140,20 @@ def test_list_addresses_paginates_members():
         assert isinstance(call.kwargs.get("pagination_state"), GraphPaginationState)
 
 
-def test_list_addresses_group_not_found_raises():
+def test_list_addresses_group_not_found_raises(mocker):
     with pytest.raises(ActionFailure):
-        run_action(make_params(group="nope"), [{"value": []}])
+        run_action(mocker, make_params(group="nope"), [{"value": []}])
 
 
-def test_list_addresses_escapes_quotes_in_group_filter():
-    _, helper = run_action(make_params(group="O'Brien"), [GROUP_RESP, MEMBERS_RESP])
+def test_list_addresses_escapes_quotes_in_group_filter(mocker):
+    _, helper = run_action(
+        mocker, make_params(group="O'Brien"), [GROUP_RESP, MEMBERS_RESP]
+    )
     first_call = helper.make_rest_call_helper.call_args_list[0]
     assert "O''Brien" in first_call.kwargs["params"]["$filter"]
 
 
-def test_list_addresses_excludes_non_recipient_types():
+def test_list_addresses_excludes_non_recipient_types(mocker):
     # Devices/service principals are not mail recipients and must be dropped.
     members = {
         "value": [
@@ -138,7 +170,7 @@ def test_list_addresses_excludes_non_recipient_types():
             },
         ]
     }
-    result, _ = run_action(make_params(), [GROUP_RESP, members])
+    result, _ = run_action(mocker, make_params(), [GROUP_RESP, members])
     assert [r.id for r in result] == ["u1"]
 
 
@@ -160,16 +192,16 @@ AMBIGUOUS_RESP = {
 }
 
 
-def test_list_addresses_ambiguous_display_name_raises():
+def test_list_addresses_ambiguous_display_name_raises(mocker):
     # Multiple groups match a shared display name with no exact alias -> error.
     with pytest.raises(ActionFailure):
-        run_action(make_params(group="Team"), [AMBIGUOUS_RESP])
+        run_action(mocker, make_params(group="Team"), [AMBIGUOUS_RESP])
 
 
-def test_list_addresses_ambiguous_resolves_by_exact_alias():
+def test_list_addresses_ambiguous_resolves_by_exact_alias(mocker):
     # An exact mail/alias input resolves deterministically among matches.
     _, helper = run_action(
-        make_params(group="team-b@x.com"), [AMBIGUOUS_RESP, MEMBERS_RESP]
+        mocker, make_params(group="team-b@x.com"), [AMBIGUOUS_RESP, MEMBERS_RESP]
     )
     assert (
         helper.make_rest_call_helper.call_args_list[1].args[0] == "/groups/GID2/members"

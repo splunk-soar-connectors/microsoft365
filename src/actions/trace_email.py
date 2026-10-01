@@ -39,8 +39,9 @@ class TraceEmailParams(Params):
     )
     status: str = Param(
         description=(
-            "The status corresponds to the Detail field of the last processing step "
-            "recorded for the message. You can specify multiple values separated by commas."
+            "Filter by the message delivery status. One or more comma-separated "
+            "values from: gettingStatus, pending, failed, delivered, expanded, "
+            "quarantined, filteredAsSpam, unknownFutureValue."
         ),
         required=False,
         default="",
@@ -133,11 +134,7 @@ def _validate_range(email_range: str) -> tuple[int, int]:
 
 
 def _validate_iso_utc(value: str, field: str) -> datetime:
-    """Validate that a value is a strict ISO-8601 UTC timestamp (YYYY-MM-DDThh:mm:ssZ).
-
-    Enforcing the exact format both prevents unexpected/injected OData syntax and
-    guarantees a timezone-aware UTC value before it is used in a cross-system filter.
-    """
+    """Validate and parse a strict ISO-8601 UTC timestamp (YYYY-MM-DDThh:mm:ssZ)."""
     try:
         return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
     except ValueError:
@@ -145,6 +142,20 @@ def _validate_iso_utc(value: str, field: str) -> datetime:
             f"'{field}' must be an ISO 8601 UTC timestamp of the form "
             "YYYY-MM-DDThh:mm:ssZ (e.g. 2026-01-20T00:00:00Z)"
         ) from None
+
+
+# exchangeMessageTraceStatus enum, keyed by lowercase for case-insensitive input.
+_STATUS_CANONICAL = {
+    "gettingstatus": "gettingStatus",
+    "pending": "pending",
+    "failed": "failed",
+    "delivered": "delivered",
+    "expanded": "expanded",
+    "quarantined": "quarantined",
+    "filteredasspam": "filteredAsSpam",
+    "unknownfuturevalue": "unknownFutureValue",
+}
+_VALID_STATUS_DISPLAY = ", ".join(_STATUS_CANONICAL.values())
 
 
 def _or_clause(field: str, raw_value: str) -> str | None:
@@ -158,14 +169,27 @@ def _or_clause(field: str, raw_value: str) -> str | None:
     return "(" + " or ".join(clauses) + ")"
 
 
-def _build_filter(params: TraceEmailParams) -> str:
-    """Translate the action parameters into a Microsoft Graph $filter string.
+def _status_clause(raw_value: str) -> str | None:
+    """Build the status OData clause, validating and canonicalizing each value."""
+    values = [v.strip() for v in raw_value.split(",") if v.strip()]
+    if not values:
+        return None
+    canonical = []
+    for value in values:
+        mapped = _STATUS_CANONICAL.get(value.lower())
+        if mapped is None:
+            raise ActionFailure(
+                f"Invalid status '{value}'. Valid values are: {_VALID_STATUS_DISPLAY}"
+            )
+        canonical.append(mapped)
+    clauses = [f"status eq '{escape_odata_string(v)}'" for v in canonical]
+    if len(clauses) == 1:
+        return clauses[0]
+    return "(" + " or ".join(clauses) + ")"
 
-    Graph supports $filter (eq) on fromIP, id, messageId, recipientAddress,
-    senderAddress, status and toIP, $filter (ge/le) on receivedDateTime, and
-    $filter (contains/startsWith/endsWith) on subject, so every supplied
-    parameter is pushed into the server-side filter.
-    """
+
+def _build_filter(params: TraceEmailParams) -> str:
+    """Build the Microsoft Graph $filter string from the supplied parameters."""
     if (params.start_date and not params.end_date) or (
         params.end_date and not params.start_date
     ):
@@ -178,7 +202,7 @@ def _build_filter(params: TraceEmailParams) -> str:
         clauses.append(clause)
     if clause := _or_clause("recipientAddress", params.recipient_address):
         clauses.append(clause)
-    if clause := _or_clause("status", params.status):
+    if clause := _status_clause(params.status):
         clauses.append(clause)
     if params.message_trace_id:
         clauses.append(f"id eq '{escape_odata_string(params.message_trace_id)}'")
@@ -208,9 +232,10 @@ def _build_filter(params: TraceEmailParams) -> str:
             raise ActionFailure("The date range must not exceed 10 days")
         if start_dt < now - timedelta(days=90):
             raise ActionFailure("'start date' must be within the last 90 days")
+        # Re-serialize to a canonical, zero-padded timestamp.
         clauses.append(
-            f"receivedDateTime ge {params.start_date} and "
-            f"receivedDateTime le {params.end_date}"
+            f"receivedDateTime ge {start_dt.strftime('%Y-%m-%dT%H:%M:%SZ')} and "
+            f"receivedDateTime le {end_dt.strftime('%Y-%m-%dT%H:%M:%SZ')}"
         )
 
     return " and ".join(clauses)

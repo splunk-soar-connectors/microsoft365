@@ -11,6 +11,7 @@ from src.actions import (
     list_addresses,
     list_users,
     move_email,
+    report_message,
     send_email,
     trace_email,
     update_email,
@@ -26,6 +27,7 @@ def test_mutating_actions_are_not_read_only():
         delete_rule.delete_rule,
         disable_rule.disable_rule,
         move_email.move_email,
+        report_message.report_message,
         send_email.send_email,
         update_email.update_email,
     )

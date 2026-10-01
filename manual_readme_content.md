@@ -291,7 +291,7 @@ Test Connectivity needs at least one of these permissions:
 | update email | `Mail.ReadWrite` | `Mail.ReadWrite` | Requires write permissions |
 | send email | `Mail.Send` | `Mail.Send` + `Mail.ReadWrite` | Mail.ReadWrite is required only when attachments are supplied |
 | block/unblock sender | `Mail.ReadWrite` | `Mail.ReadWrite` | Uses beta API |
-| report message | `Mail.ReadWrite` | `Mail.ReadWrite` | Marks a message junk/notJunk/phish; uses beta API |
+| report message | `Mail.ReadWrite` | `Mail.ReadWrite` | Reports a message as junk/notJunk/phish via the Graph `reportMessage` beta API |
 | **Folder Actions** | | | |
 | list folders | `Mail.ReadBasic` | `Mail.Read` | ReadBasic for folder list only |
 | create folder | `Mail.ReadWrite` | `Mail.ReadWrite` | Requires write permissions |
@@ -342,14 +342,16 @@ To use this action:
 
 Query constraints imposed by the API: results cover the last **90 days**, a single query cannot span more than **10 days**, the end date cannot be in the future, and if no date range is provided the API returns the last **48 hours**. All supplied filters (including `from_ip`) are applied server-side by Graph.
 
+The `status` parameter accepts one or more comma-separated values from: `gettingStatus`, `pending`, `failed`, `delivered`, `expanded`, `quarantined`, `filteredAsSpam`, `unknownFutureValue` (case-insensitive). Any other value is rejected with a clear error listing the valid options.
+
 **Authentication:** trace email supports **application-only** (client-credentials) authentication only. Although the shared asset lets you configure delegated (interactive OAuth) authentication, delegated auth is **not supported** for this action and message-trace calls will fail. Configure the asset with app-only auth (client secret or certificate) for this action.
 
 ### List Addresses Notes
 
 The **list addresses** action expands a distribution list via Microsoft Graph (`/groups/{id}/members`, or `/groups/{id}/transitiveMembers` when `recursive` is set). Two behavior differences from the legacy office365 (EWS) action are worth noting:
 
-- **Only mail-capable recipients are returned** — users (mailboxes), mail-enabled groups (nested distribution lists), and contacts. Directory objects that are not mail recipients (devices, service principals) are excluded. The `mail` field reflects the member's real email address only; it is left empty when the member has none, and the member's `userPrincipalName` is reported in its own field and never substituted for `mail`.
-- **Dynamic distribution groups are not supported.** Graph resolves the input through `/groups`, which does not expose dynamic distribution groups, so a dynamic (or otherwise unresolvable) distribution list returns a clear "No distribution list found" error. If the display name you provide matches more than one group, specify the exact email address or alias (mailNickname) to disambiguate.
+- **Only mail-capable recipients are returned** — users (mailboxes), mail-enabled groups (nested distribution lists), and contacts. Directory objects that are not mail recipients (devices, service principals) are excluded, and members without an email address are omitted entirely. The `mail` field reflects the member's real email address only; the member's `userPrincipalName` is reported in its own field and never substituted for `mail`.
+- **Dynamic distribution groups are not supported.** Graph resolves the input through `/groups` and only matches mail-enabled groups, so a dynamic distribution group, a mail-disabled security group, or an otherwise unresolvable list returns a clear "No mail-enabled distribution list found" error. If the display name you provide matches more than one group, specify the exact email address or alias (mailNickname) to disambiguate.
 
 ## User Permissions Setup
 
