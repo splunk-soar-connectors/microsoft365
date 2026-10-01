@@ -453,6 +453,8 @@ def test_connectivity(soar: SOARClient, asset: Asset) -> None:
             raise ValueError("Scope is required for non-admin access")
 
         scopes = asset.scope.split()
+        if "offline_access" not in scopes:
+            scopes.append("offline_access")
         flow = AuthorizationCodeFlow(
             asset.auth_state,
             str(soar.get_asset_id()),
@@ -469,7 +471,10 @@ def test_connectivity(soar: SOARClient, asset: Asset) -> None:
             "Please connect to the following URL from a different tab to continue the connectivity process"
         )
         logger.info(auth_url)
-        flow.wait_for_authorization()
+        token = flow.wait_for_authorization()
+        asset.auth_state["non_admin_auth"] = token.model_dump(
+            mode="json", exclude_none=True
+        )
         logger.info("Successfully obtained token via authorization code flow")
 
     helper = MsGraphHelper(soar, asset)
@@ -521,7 +526,6 @@ def handle_oauth_result(request: WebhookRequest[Asset]) -> WebhookResponse:
                 tenant=request.asset.tenant
             ),
             token_endpoint=MS_GRAPH_TOKEN_URL.format(tenant=request.asset.tenant),
-            redirect_uri=app.get_webhook_url("result"),
             scope=request.asset.scope.split() if request.asset.scope else [],
         ),
         request.asset.auth_state,
