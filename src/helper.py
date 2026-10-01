@@ -12,6 +12,7 @@
 # and limitations under the License.
 
 import json
+import math
 import time
 from dataclasses import dataclass, field
 from urllib.parse import quote, urlsplit
@@ -22,7 +23,6 @@ from soar_sdk.exceptions import ActionFailure
 from soar_sdk.logging import getLogger
 
 from .consts import (
-    MSGOFFICE365_AUTH_FAILURE_MSG,
     MSGOFFICE365_AUTH_TYPES,
     MSGOFFICE365_AUTHORITY_URL,
     MSGOFFICE365_CBA_KEY_ERROR,
@@ -37,6 +37,10 @@ from .consts import (
 
 
 logger = getLogger()
+
+
+class GraphTokenRejected(ActionFailure):
+    """Graph rejected the access token used for this request."""
 
 
 def escape_odata_string(value: str) -> str:
@@ -203,17 +207,36 @@ class MsGraphHelper:
         resp.raise_for_status()
         return resp.json()
 
-    def get_token(self):
+    def get_token(self, force=False):
         state = self._get_auth_state()
+        auth_key = (
+            "admin_auth" if self.asset.admin_access else "non_admin_auth"
+        )  # pragma: allowlist secret
+        auth_state = state.get(auth_key, {})
         if self.asset.admin_access:
-            self._access_token = state.get("admin_auth", {}).get("access_token")
+            self._access_token = auth_state.get("access_token")
         else:
-            self._access_token = state.get("non_admin_auth", {}).get("access_token")
-            self._refresh_token = state.get("non_admin_auth", {}).get("refresh_token")
+            self._access_token = auth_state.get("access_token")
+            self._refresh_token = auth_state.get("refresh_token")
 
-        if self._access_token:
+        expires_at = auth_state.get("expires_at")
+        try:
+            if isinstance(expires_at, bool):
+                raise ValueError
+            expires_at = float(expires_at)
+            if not math.isfinite(expires_at) or expires_at <= 0:
+                expires_at = None
+        except (TypeError, ValueError, OverflowError):
+            expires_at = None
+
+        if (
+            self._access_token
+            and not force
+            and (expires_at is None or time.time() < expires_at)
+        ):
             return
 
+        started_at = time.time()
         if self._auth_type == "cba" or not self.asset.client_secret:
             resp_json = self._generate_cba_access_token()
             state["auth_type"] = "cba"
@@ -221,12 +244,33 @@ class MsGraphHelper:
             resp_json = self._generate_oauth_access_token()
             state["auth_type"] = "oauth"
 
+        if not resp_json.get("access_token"):
+            raise ActionFailure("Token response did not include an access token")
+
+        if (
+            not self.asset.admin_access
+            and not resp_json.get("refresh_token")
+            and self._refresh_token
+        ):
+            resp_json["refresh_token"] = self._refresh_token
+
+        try:
+            expires_in = resp_json.get("expires_in")
+            if isinstance(expires_in, bool):
+                raise ValueError
+            expires_in = float(expires_in)
+            if not math.isfinite(expires_in) or expires_in <= 0:
+                raise ValueError
+            resp_json["expires_at"] = started_at + expires_in
+        except (TypeError, ValueError, OverflowError):
+            resp_json.pop("expires_at", None)
+
         if self.asset.admin_access:
             if self.asset.admin_consent:
                 state["admin_consent"] = True
-            state["admin_auth"] = resp_json
+            state[auth_key] = resp_json
         else:
-            state["non_admin_auth"] = resp_json
+            state[auth_key] = resp_json
 
         self._access_token = resp_json.get("access_token")
         self._refresh_token = resp_json.get("refresh_token")
@@ -267,7 +311,6 @@ class MsGraphHelper:
         if download:
             if 200 <= resp.status_code < 399:
                 return resp.text
-            raise ActionFailure(f"Error downloading: {resp.status_code}")
 
         if resp.status_code == 204:
             return {}
@@ -282,6 +325,19 @@ class MsGraphHelper:
             if 200 <= resp.status_code < 399:
                 return resp_json
             error = resp_json.get("error", {})
+            if (
+                resp.status_code == 401
+                and isinstance(error, dict)
+                and error.get("code")
+                in {
+                    "InvalidAuthenticationToken",
+                    "ExpiredAuthenticationToken",
+                    "TokenExpired",
+                }
+            ):
+                raise GraphTokenRejected(
+                    f"API Error {resp.status_code}: {error['code']}"
+                )
             error_msg = (
                 error.get("message", resp.text)
                 if isinstance(error, dict)
@@ -319,25 +375,12 @@ class MsGraphHelper:
             return self._make_rest_call(
                 url, method=method, params=params, data=data, download=download
             )
-        except ActionFailure as e:
-            error_msg = str(e)
-            if any(msg in error_msg for msg in MSGOFFICE365_AUTH_FAILURE_MSG):
-                logger.info("Token expired, refreshing...")
-                self._access_token = None
-                state = self._get_auth_state()
-                auth_key = (
-                    "admin_auth" if self.asset.admin_access else "non_admin_auth"
-                )  # pragma: allowlist secret
-                state.pop(auth_key, None)
-                self._save_auth_state(state)
-                self.get_token()
-                try:
-                    return self._make_rest_call(
-                        url, method=method, params=params, data=data, download=download
-                    )
-                except ActionFailure as refresh_error:
-                    raise ActionFailure(str(refresh_error)) from None
-            raise
+        except GraphTokenRejected:
+            logger.info("Graph rejected the access token; renewing once")
+            self.get_token(force=True)
+            return self._make_rest_call(
+                url, method=method, params=params, data=data, download=download
+            )
 
     def upload_attachment_chunk(
         self, upload_url: str, content: bytes, content_range: str
