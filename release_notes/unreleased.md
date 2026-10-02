@@ -1,3 +1,1 @@
 **Unreleased**
-
-* Fixed the OAuth authorization callback failing when action configuration is unavailable.
