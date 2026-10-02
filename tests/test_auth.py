@@ -4,6 +4,7 @@ import importlib
 from unittest.mock import Mock
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
 from soar_sdk.asset_state import AssetState
 from soar_sdk.auth import AuthorizationCodeFlow
@@ -68,8 +69,11 @@ def _request(asset, query):
 def test_authorization_callback_without_action_config(mocker, asset):
     flow = _authorization_flow(asset)
     auth_url = flow.get_authorization_url()
-    state = parse_qs(urlparse(auth_url).query)["state"]
+    query = parse_qs(urlparse(auth_url).query)
+    assert query["redirect_uri"] == [REDIRECT_URI]
+    state = query["state"]
     mocker.patch.object(app_module.app.actions_manager, "get_config", return_value=None)
+    redirect_uri = mocker.spy(app_module.app, "get_webhook_url")
     response = Mock(status_code=200)
     response.json.return_value = {"base_url": "https://soar.example.com"}
     mocker.patch.object(app_module.app.soar_client, "get", return_value=response)
@@ -83,3 +87,23 @@ def test_authorization_callback_without_action_config(mocker, asset):
     assert flow.client.get_authorization_code() == "auth-code"
     assert asset.auth_state["oauth"]["session"]["auth_pending"] is False
     assert asset.auth_state["unrelated"] == "preserved"
+    redirect_uri.assert_not_called()
+
+    mocker.patch("soar_sdk.auth.flows.time.sleep")
+    exchange = mocker.patch(
+        "httpx.Client.post",
+        return_value=httpx.Response(
+            200,
+            json={"access_token": "access-token", "expires_in": 3600},
+            request=httpx.Request("POST", TOKEN_ENDPOINT),
+        ),
+    )
+
+    token = flow.wait_for_authorization()
+
+    assert token.access_token == "access-token"
+    exchange.assert_called_once()
+    assert exchange.call_args.args == (TOKEN_ENDPOINT,)
+    assert exchange.call_args.kwargs["data"]["grant_type"] == "authorization_code"
+    assert exchange.call_args.kwargs["data"]["code"] == "auth-code"
+    assert exchange.call_args.kwargs["data"]["redirect_uri"] == REDIRECT_URI
