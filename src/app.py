@@ -521,7 +521,6 @@ def handle_oauth_result(request: WebhookRequest[Asset]) -> WebhookResponse:
                 tenant=request.asset.tenant
             ),
             token_endpoint=MS_GRAPH_TOKEN_URL.format(tenant=request.asset.tenant),
-            redirect_uri=app.get_webhook_url("result"),
             scope=request.asset.scope.split() if request.asset.scope else [],
         ),
         request.asset.auth_state,
