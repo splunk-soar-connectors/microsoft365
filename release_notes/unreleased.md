@@ -1,1 +1,3 @@
 **Unreleased**
+
+* Fixed delegated OAuth authentication to retain access and refresh tokens after authorization.
