@@ -6,17 +6,17 @@ from soar_sdk.action_results import ActionOutput
 from soar_sdk.params import Param, Params
 
 from ..app import Asset, app
-from ..helper import MsGraphHelper
+from ..helper import MsGraphHelper, encode_path_segment
 
 
 class ReportMessageParams(Params):
     message_id: str = Param(
-        description="Message ID to pick the sender of",
+        description="The ID of the message to report",
         required=True,
         cef_types=["msgoffice365 message id"],
     )
     user_id: str = Param(
-        description="User ID to base the action of",
+        description="The user ID or principal name of the mailbox that holds the message",
         required=True,
         cef_types=["msgoffice365 user id", "msgoffice365 user principal name", "email"],
     )
@@ -26,7 +26,7 @@ class ReportMessageParams(Params):
         default=False,
     )
     report_action: str = Param(
-        description="Indicates the type of action to be reported on the message",
+        description="The type of report to submit for the message",
         required=True,
         value_list=["junk", "notJunk", "phish"],
     )
@@ -37,7 +37,7 @@ class ReportMessageOutput(ActionOutput):
 
 
 @app.action(
-    description="Add the sender email into the report",
+    description="Report a message as junk, not junk, or phishing to improve mail filtering",
     action_type="contain",
     read_only=False,
 )
@@ -47,21 +47,19 @@ def report_message(
     helper = MsGraphHelper(soar, asset)
     helper.get_token()
 
-    if params.report_action in ["junk", "phish"]:
-        endpoint = f"/users/{params.user_id}/messages/{params.message_id}/markAsJunk"
-        body = {
-            "moveToJunk": params.is_message_move_requested
-            if params.report_action == "junk"
-            else False,
-        }
-    elif params.report_action == "notJunk":
-        endpoint = f"/users/{params.user_id}/messages/{params.message_id}/markAsNotJunk"
-        body = {"moveToInbox": params.is_message_move_requested}
-    else:
-        raise ValueError(f"Unsupported report action: {params.report_action}")
+    # reportMessage (beta-only) replaces the deprecated markAsJunk/markAsNotJunk endpoints.
+    endpoint = (
+        f"/users/{encode_path_segment(params.user_id)}"
+        f"/messages/{encode_path_segment(params.message_id)}/reportMessage"
+    )
+    body = {
+        "IsMessageMoveRequested": params.is_message_move_requested,
+        "ReportAction": params.report_action,
+    }
 
-    helper.make_rest_call_helper(endpoint, method="post", data=json.dumps(body))
-
+    helper.make_rest_call_helper(
+        endpoint, method="post", data=json.dumps(body), beta=True
+    )
     soar.set_message(f"Successfully reported message as {params.report_action}")
     return ReportMessageOutput(
         message=f"Successfully reported message as {params.report_action}"
