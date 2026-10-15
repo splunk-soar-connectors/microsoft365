@@ -1536,6 +1536,7 @@ PARAMETER | REQUIRED | DESCRIPTION | TYPE | CONTAINS
 **internet_message_id** | optional | Internet Message ID to search | string | |
 **limit** | optional | Maximum number of emails to return | numeric | |
 **search_well_known_folders** | optional | Search in well-known folders | boolean | |
+**search_recoverable_items_folders** | optional | Include Recoverable Items subfolders in the search; returns up to the limit from the selected search scope and each Recoverable Items folder | boolean | |
 
 #### Action Output
 
@@ -1552,6 +1553,7 @@ action_result.parameter.body | string | | |
 action_result.parameter.internet_message_id | string | | |
 action_result.parameter.limit | numeric | | |
 action_result.parameter.search_well_known_folders | boolean | | |
+action_result.parameter.search_recoverable_items_folders | boolean | | |
 action_result.data.\*.id | string | | |
 action_result.data.\*.subject | string | | |
 action_result.data.\*.sender | string | | |
