@@ -45,6 +45,16 @@ MSGOFFICE365_WELL_KNOWN_FOLDERS_FILTER = [
     "serverfailures",
     "syncissues",
 ]
+MSGOFFICE365_RECOVERABLE_ITEMS_FOLDERS_FILTER = [
+    "recoverableitemsdeletions",
+    "recoverableitemspurges",
+    "recoverableitemsversions",
+    "recoverableitemsaudits",
+    "recoverableitemsdiscoveryholds",
+    "recoverableitemssubstrateholds",
+    "recoverableitemsroot",
+    "recoverableitemscalendarlogging",
+]
 MSGOFFICE365_STATE_FILE_CORRUPT_ERROR = "Error occurred while loading the state file. Resetting the state file with the default format."
 MSGOFFICE365_INVALID_PERMISSION_ERROR = (
     "Error occurred while saving the newly generated access token in the state file."

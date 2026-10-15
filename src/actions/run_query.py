@@ -10,7 +10,11 @@ from soar_sdk.params import Param, Params
 
 if TYPE_CHECKING:
     from ..app import Asset
-from ..consts import MSGOFFICE365_PER_PAGE_COUNT, MSGOFFICE365_SELECT_PARAMETER_LIST
+from ..consts import (
+    MSGOFFICE365_PER_PAGE_COUNT,
+    MSGOFFICE365_RECOVERABLE_ITEMS_FOLDERS_FILTER,
+    MSGOFFICE365_SELECT_PARAMETER_LIST,
+)
 from ..helper import (
     GraphPaginationState,
     MsGraphHelper,
@@ -66,6 +70,11 @@ class RunQueryParams(Params):
         required=False,
         default=False,
     )
+    search_recoverable_items_folders: bool = Param(
+        description="Include Recoverable Items subfolders in the search",
+        required=False,
+        default=False,
+    )
 
 
 class EmailResult(ActionOutput):
@@ -118,6 +127,7 @@ def render_run_query(output: list[EmailResult]) -> dict:
             "param_sender": None,
             "param_limit": None,
             "param_internet_message_id": None,
+            "param_search_recoverable_items_folders": None,
             "emails": emails,
         }
     ]
@@ -143,6 +153,13 @@ def run_query(
         endpoint = f"/users/{params.email_address}/messages"
     else:
         endpoint = f"/users/{params.email_address}/mailFolders/{folder_id}/messages"
+
+    endpoints = [endpoint]
+    if params.search_recoverable_items_folders:
+        endpoints.extend(
+            f"/users/{params.email_address}/mailFolders/{folder}/messages"
+            for folder in MSGOFFICE365_RECOVERABLE_ITEMS_FOLDERS_FILTER
+        )
 
     filters = []
     if params.subject:
@@ -170,23 +187,26 @@ def run_query(
         api_params["$top"] = str(min(params.limit, MSGOFFICE365_PER_PAGE_COUNT))
 
     emails = []
-    next_link = None
-    pagination_state = GraphPaginationState()
-    while len(emails) < params.limit:
-        resp = helper.make_rest_call_helper(
-            endpoint,
-            params=api_params,
-            nextLink=next_link,
-            pagination_state=pagination_state,
-        )
-        emails.extend(resp.get("value", []))
+    for endpoint in endpoints:
+        endpoint_emails = []
+        next_link = None
+        pagination_state = GraphPaginationState()
+        endpoint_params = api_params.copy()
+        while len(endpoint_emails) < params.limit:
+            resp = helper.make_rest_call_helper(
+                endpoint,
+                params=endpoint_params,
+                nextLink=next_link,
+                pagination_state=pagination_state,
+            )
+            endpoint_emails.extend(resp.get("value", []))
 
-        next_link = resp.get("@odata.nextLink")
-        if not next_link:
-            break
-        api_params = None
+            next_link = resp.get("@odata.nextLink")
+            if not next_link:
+                break
+            endpoint_params = None
 
-    emails = emails[: params.limit]
+        emails.extend(endpoint_emails[: params.limit])
     emails = [serialize_complex_fields(e, ["sender"]) for e in emails]
     soar.set_message(f"Successfully retrieved {len(emails)} emails")
     soar.set_summary(RunQuerySummary(emails_matched=len(emails)))
