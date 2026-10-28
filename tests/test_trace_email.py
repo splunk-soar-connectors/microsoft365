@@ -184,6 +184,17 @@ def test_build_filter_rejects_mixed_valid_and_invalid_status():
 # --------------------------------------------------------------------------- #
 # trace_email handler
 # --------------------------------------------------------------------------- #
+def test_trace_email_rejects_delegated_asset(mocker):
+    # The message-trace API is app-only; a delegated asset must fail fast.
+    helper = Mock()
+    mocker.patch.object(trace_module, "MsGraphHelper", return_value=helper)
+    asset = Mock()
+    asset.admin_access = False
+    with pytest.raises(ActionFailure, match="application-only"):
+        trace_email.__wrapped__(make_params(), Mock(), asset)
+    helper.make_rest_call_helper.assert_not_called()
+
+
 def test_trace_email_uses_v1_message_trace_endpoint(mocker):
     _, helper = run_action(mocker, make_params(), [{"value": []}])
     call = helper.make_rest_call_helper.call_args

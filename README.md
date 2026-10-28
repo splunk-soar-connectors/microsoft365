@@ -354,7 +354,7 @@ Query constraints imposed by the API: results cover the last **90 days**, a sing
 
 The `status` parameter accepts one or more comma-separated values from: `gettingStatus`, `pending`, `failed`, `delivered`, `expanded`, `quarantined`, `filteredAsSpam`, `unknownFutureValue` (case-insensitive). Any other value is rejected with a clear error listing the valid options.
 
-**Authentication:** trace email supports **application-only** (client-credentials) authentication only. Although the shared asset lets you configure delegated (interactive OAuth) authentication, delegated auth is **not supported** for this action and message-trace calls will fail. Configure the asset with app-only auth (client secret or certificate) for this action.
+**Authentication:** trace email supports **application-only** (client-credentials) authentication only. Although the shared asset lets you configure delegated (interactive OAuth) authentication, delegated auth is **not supported** for this action: it is enforced in code, and running the action on a delegated asset fails immediately with a clear error. Configure the asset with app-only auth (enable **admin access**, using a client secret or certificate) for this action.
 
 ### List Addresses Notes
 
@@ -659,7 +659,7 @@ VARIABLE | REQUIRED | TYPE | DESCRIPTION
 [get email properties](#action-get-email-properties) - Get properties of an email <br>
 [get folder id](#action-get-folder-id) - Get the ID of a mail folder <br>
 [get mailbox messages](#action-get-mailbox-messages) - Get messages from a mailbox folder <br>
-[list addresses](#action-list-addresses) - Get the email addresses that make up a Distribution List <br>
+[list addresses](#action-list-addresses) - Expand a distribution list into its members. Takes a group by email address or display name and returns a record for each mail-capable member (email address, display name, and mailbox type). <br>
 [list folders](#action-list-folders) - Get the mail folder hierarchy <br>
 [list group members](#action-list-group-members) - Get group members <br>
 [list groups](#action-list-groups) - List all the groups in an organization, including but not limited to Office 365 groups <br>
@@ -1006,7 +1006,7 @@ summary.total_objects_successful | numeric | | 1 |
 
 ## action: 'list addresses'
 
-Get the email addresses that make up a Distribution List
+Expand a distribution list into its members. Takes a group by email address or display name and returns a record for each mail-capable member (email address, display name, and mailbox type).
 
 Type: **investigate** <br>
 Read only: **True**

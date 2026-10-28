@@ -344,7 +344,7 @@ Query constraints imposed by the API: results cover the last **90 days**, a sing
 
 The `status` parameter accepts one or more comma-separated values from: `gettingStatus`, `pending`, `failed`, `delivered`, `expanded`, `quarantined`, `filteredAsSpam`, `unknownFutureValue` (case-insensitive). Any other value is rejected with a clear error listing the valid options.
 
-**Authentication:** trace email supports **application-only** (client-credentials) authentication only. Although the shared asset lets you configure delegated (interactive OAuth) authentication, delegated auth is **not supported** for this action and message-trace calls will fail. Configure the asset with app-only auth (client secret or certificate) for this action.
+**Authentication:** trace email supports **application-only** (client-credentials) authentication only. Although the shared asset lets you configure delegated (interactive OAuth) authentication, delegated auth is **not supported** for this action: it is enforced in code, and running the action on a delegated asset fails immediately with a clear error. Configure the asset with app-only auth (enable **admin access**, using a client secret or certificate) for this action.
 
 ### List Addresses Notes
 

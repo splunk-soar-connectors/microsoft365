@@ -8,15 +8,13 @@ from ..app import Asset, app
 from ..helper import GraphPaginationState, MsGraphHelper, escape_odata_string
 
 
-# Graph @odata.type -> legacy mailbox type label.
+# Graph @odata.type -> legacy mailbox type label. Only these mail-capable types
+# are returned; other objects (devices, service principals) are excluded.
 MEMBER_TYPE_MAP = {
     "#microsoft.graph.user": "Mailbox",
     "#microsoft.graph.group": "PublicDL",
     "#microsoft.graph.orgContact": "Contact",
 }
-
-# Mail-capable recipient types only; devices/service principals are excluded.
-RECIPIENT_TYPES = set(MEMBER_TYPE_MAP)
 
 
 class ListAddressesParams(Params):
@@ -97,7 +95,11 @@ def _resolve_group_id(helper: MsGraphHelper, group: str) -> str:
 
 
 @app.action(
-    description="Get the email addresses that make up a Distribution List",
+    description=(
+        "Expand a distribution list into its members. Takes a group by email "
+        "address or display name and returns a record for each mail-capable member "
+        "(email address, display name, and mailbox type)."
+    ),
     action_type="investigate",
     read_only=True,
 )
@@ -129,7 +131,7 @@ def list_addresses(
     for member in members:
         odata_type = member.get("@odata.type", "")
         # Skip non-recipient objects (devices, service principals).
-        if odata_type not in RECIPIENT_TYPES:
+        if odata_type not in MEMBER_TYPE_MAP:
             continue
         # Skip members with no SMTP address; never substitute the UPN for mail.
         mail = member.get("mail")

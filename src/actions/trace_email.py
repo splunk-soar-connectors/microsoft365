@@ -255,6 +255,14 @@ def _build_filter(params: TraceEmailParams) -> str:
 def trace_email(
     params: TraceEmailParams, soar: SOARClient, asset: Asset
 ) -> list[MessageTraceOutput]:
+    # The message-trace API is app-only; reject a delegated asset up front.
+    if not asset.admin_access:
+        raise ActionFailure(
+            "Trace email requires application-only authentication. Enable 'admin "
+            "access' (app-only / client credentials) on the asset; delegated OAuth "
+            "is not supported for this action."
+        )
+
     mini, maxi = 0, MAX_END_OFFSET_VAL
     if params.range:
         mini, maxi = _validate_range(params.range)
