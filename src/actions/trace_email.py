@@ -10,28 +10,28 @@ from soar_sdk.params import Param, Params
 from ..app import Asset, app
 from ..consts import (
     MAX_END_OFFSET_VAL,
+    MSGOFFICE365_MESSAGE_TRACE_DEFAULT_MAX_OFFSET,
     MSGOFFICE365_MESSAGE_TRACE_ENDPOINT,
     MSGOFFICE365_MESSAGE_TRACE_MAX_TOP,
 )
-from ..helper import GraphPaginationState, MsGraphHelper, escape_odata_string
+from ..helper import (
+    GraphPaginationState,
+    MsGraphHelper,
+    escape_odata_string,
+    is_cba_auth,
+)
 
 
 class TraceEmailParams(Params):
     sender_address: str = Param(
-        description=(
-            "The SMTP email address of the user the message was purportedly from. "
-            "You can specify multiple values separated by commas."
-        ),
+        description="The SMTP email address of the user the message was purportedly from",
         required=False,
         default="",
         primary=True,
         cef_types=["email"],
     )
     recipient_address: str = Param(
-        description=(
-            "The SMTP email address of the user that the message was addressed to. "
-            "You can specify multiple values separated by commas."
-        ),
+        description="The SMTP email address of the user that the message was addressed to",
         required=False,
         default="",
         primary=True,
@@ -39,9 +39,8 @@ class TraceEmailParams(Params):
     )
     status: str = Param(
         description=(
-            "Filter by the message delivery status. One or more comma-separated "
-            "values from: gettingStatus, pending, failed, delivered, expanded, "
-            "quarantined, filteredAsSpam, unknownFutureValue."
+            "Filter by the message delivery status. One of: gettingStatus, pending, "
+            "failed, delivered, expanded, quarantined, filteredAsSpam, unknownFutureValue."
         ),
         required=False,
         default="",
@@ -90,7 +89,7 @@ class TraceEmailParams(Params):
         default=False,
     )
     range: str = Param(
-        description="Email range to return (min_offset-max_offset)",
+        description="Email range to return (min_offset-max_offset). Defaults to 0-999",
         required=False,
         default="",
     )
@@ -158,34 +157,31 @@ _STATUS_CANONICAL = {
 _VALID_STATUS_DISPLAY = ", ".join(_STATUS_CANONICAL.values())
 
 
-def _or_clause(field: str, raw_value: str) -> str | None:
-    """Build an OData filter clause for one or more comma-separated values."""
-    values = [v.strip() for v in raw_value.split(",") if v.strip()]
-    if not values:
-        return None
-    clauses = [f"{field} eq '{escape_odata_string(v)}'" for v in values]
-    if len(clauses) == 1:
-        return clauses[0]
-    return "(" + " or ".join(clauses) + ")"
+def _single_value(raw_value: str, label: str) -> str:
+    """Return the trimmed value; Graph's trace API supports one value per field."""
+    value = raw_value.strip()
+    if "," in value:
+        raise ActionFailure(
+            f"'{label}' accepts a single value; multiple values are not supported"
+        )
+    return value
+
+
+def _eq_clause(field: str, raw_value: str, label: str) -> str | None:
+    value = _single_value(raw_value, label)
+    return f"{field} eq '{escape_odata_string(value)}'" if value else None
 
 
 def _status_clause(raw_value: str) -> str | None:
-    """Build the status OData clause, validating and canonicalizing each value."""
-    values = [v.strip() for v in raw_value.split(",") if v.strip()]
-    if not values:
+    value = _single_value(raw_value, "status")
+    if not value:
         return None
-    canonical = []
-    for value in values:
-        mapped = _STATUS_CANONICAL.get(value.lower())
-        if mapped is None:
-            raise ActionFailure(
-                f"Invalid status '{value}'. Valid values are: {_VALID_STATUS_DISPLAY}"
-            )
-        canonical.append(mapped)
-    clauses = [f"status eq '{escape_odata_string(v)}'" for v in canonical]
-    if len(clauses) == 1:
-        return clauses[0]
-    return "(" + " or ".join(clauses) + ")"
+    mapped = _STATUS_CANONICAL.get(value.lower())
+    if mapped is None:
+        raise ActionFailure(
+            f"Invalid status '{value}'. Valid values are: {_VALID_STATUS_DISPLAY}"
+        )
+    return f"status eq '{mapped}'"
 
 
 def _build_filter(params: TraceEmailParams) -> str:
@@ -198,18 +194,20 @@ def _build_filter(params: TraceEmailParams) -> str:
         )
 
     clauses = []
-    if clause := _or_clause("senderAddress", params.sender_address):
+    if clause := _eq_clause("senderAddress", params.sender_address, "sender address"):
         clauses.append(clause)
-    if clause := _or_clause("recipientAddress", params.recipient_address):
+    if clause := _eq_clause(
+        "recipientAddress", params.recipient_address, "recipient address"
+    ):
         clauses.append(clause)
     if clause := _status_clause(params.status):
         clauses.append(clause)
     if params.message_trace_id:
         clauses.append(f"id eq '{escape_odata_string(params.message_trace_id)}'")
     if params.internet_message_id:
-        clauses.append(
-            f"messageId eq '{escape_odata_string(params.internet_message_id)}'"
-        )
+        # Graph stores message IDs with angle brackets; normalize the input.
+        bare = params.internet_message_id.strip().strip("<>")
+        clauses.append(f"messageId eq '<{escape_odata_string(bare)}>'")
     if params.from_ip:
         if not is_ip(params.from_ip):
             raise ActionFailure(
@@ -241,6 +239,26 @@ def _build_filter(params: TraceEmailParams) -> str:
     return " and ".join(clauses)
 
 
+@app.view_handler(template="office365_trace_email.html")
+def render_trace_email(output: list[MessageTraceOutput]) -> dict:
+    emails = [
+        {
+            "sender_address": row.senderAddress,
+            "recipient_address": row.recipientAddress,
+            "subject": row.subject,
+            "status": row.status,
+            "received_date_time": row.receivedDateTime,
+            "from_ip": row.fromIP,
+            "to_ip": row.toIP,
+            "message_id": row.messageId,
+            "id": row.id,
+            "size": row.size,
+        }
+        for row in output
+    ]
+    return {"results": [{"data": bool(emails), "emails": emails}]}
+
+
 @app.action(
     description=(
         "Get the message trace for emails (Exchange Online) via the Microsoft Graph "
@@ -251,19 +269,20 @@ def _build_filter(params: TraceEmailParams) -> str:
     ),
     action_type="investigate",
     read_only=True,
+    view_handler=render_trace_email,
 )
 def trace_email(
     params: TraceEmailParams, soar: SOARClient, asset: Asset
 ) -> list[MessageTraceOutput]:
-    # The message-trace API is app-only; reject a delegated asset up front.
-    if not asset.admin_access:
+    # App-only by design: client credentials or certificate; delegated is rejected.
+    if not (asset.admin_access or is_cba_auth(asset)):
         raise ActionFailure(
-            "Trace email requires application-only authentication. Enable 'admin "
-            "access' (app-only / client credentials) on the asset; delegated OAuth "
-            "is not supported for this action."
+            "Trace email requires application-only authentication. Use certificate "
+            "authentication, or enable 'admin access' with a client secret; delegated "
+            "OAuth is not supported for this action."
         )
 
-    mini, maxi = 0, MAX_END_OFFSET_VAL
+    mini, maxi = 0, MSGOFFICE365_MESSAGE_TRACE_DEFAULT_MAX_OFFSET
     if params.range:
         mini, maxi = _validate_range(params.range)
 
@@ -273,7 +292,9 @@ def trace_email(
     helper = MsGraphHelper(soar, asset)
     helper.get_token()
 
-    api_params: dict | None = {"$top": str(MSGOFFICE365_MESSAGE_TRACE_MAX_TOP)}
+    api_params: dict | None = {
+        "$top": str(min(MSGOFFICE365_MESSAGE_TRACE_MAX_TOP, maxi + 1))
+    }
     if filter_str:
         api_params["$filter"] = filter_str
 

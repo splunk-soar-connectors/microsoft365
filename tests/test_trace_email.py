@@ -12,7 +12,7 @@ from src.actions.trace_email import (
     MSGOFFICE365_MESSAGE_TRACE_ENDPOINT,
     TraceEmailParams,
     _build_filter,
-    _or_clause,
+    _eq_clause,
     _validate_range,
     trace_email,
 )
@@ -46,26 +46,36 @@ def run_action(mocker, params, responses):
 
 
 # --------------------------------------------------------------------------- #
-# _or_clause
+# _eq_clause
 # --------------------------------------------------------------------------- #
-def test_or_clause_single_value():
-    assert _or_clause("senderAddress", "a@x.com") == "senderAddress eq 'a@x.com'"
-
-
-def test_or_clause_multiple_values():
+def test_eq_clause_single_value():
     assert (
-        _or_clause("senderAddress", "a@x.com, b@x.com")
-        == "(senderAddress eq 'a@x.com' or senderAddress eq 'b@x.com')"
+        _eq_clause("senderAddress", " a@x.com ", "sender address")
+        == "senderAddress eq 'a@x.com'"
     )
 
 
-@pytest.mark.parametrize("value", ["", "   ", " , "])
-def test_or_clause_empty_returns_none(value):
-    assert _or_clause("senderAddress", value) is None
+@pytest.mark.parametrize("value", ["", "   "])
+def test_eq_clause_empty_returns_none(value):
+    assert _eq_clause("senderAddress", value, "sender address") is None
 
 
-def test_or_clause_escapes_quotes():
-    assert _or_clause("senderAddress", "o'x") == "senderAddress eq 'o''x'"
+def test_eq_clause_escapes_quotes():
+    assert (
+        _eq_clause("senderAddress", "o'x", "sender address")
+        == "senderAddress eq 'o''x'"
+    )
+
+
+def test_eq_clause_rejects_multiple_values():
+    with pytest.raises(ActionFailure, match="single value"):
+        _eq_clause("senderAddress", "a@x.com,b@x.com", "sender address")
+
+
+@pytest.mark.parametrize("field", ["sender_address", "recipient_address", "status"])
+def test_build_filter_rejects_comma_separated_values(field):
+    with pytest.raises(ActionFailure, match="single value"):
+        _build_filter(make_params(**{field: "delivered,failed"}))
 
 
 # --------------------------------------------------------------------------- #
@@ -114,8 +124,14 @@ def test_build_filter_rejects_invalid_from_ip():
 
 def test_build_filter_single_field_clauses():
     assert _build_filter(make_params(message_trace_id="gid")) == "id eq 'gid'"
-    assert _build_filter(make_params(internet_message_id="<a>")) == "messageId eq '<a>'"
     assert _build_filter(make_params(to_ip="1.2.3.4")) == "toIP eq '1.2.3.4'"
+
+
+@pytest.mark.parametrize("value", ["<a@x>", "a@x"])
+def test_build_filter_message_id_normalizes_to_bracketed_form(value):
+    assert (
+        _build_filter(make_params(internet_message_id=value)) == "messageId eq '<a@x>'"
+    )
 
 
 def test_build_filter_requires_both_dates():
@@ -165,20 +181,9 @@ def test_build_filter_canonicalizes_status_casing():
     )
 
 
-def test_build_filter_accepts_multiple_statuses():
-    f = _build_filter(make_params(status="delivered, failed"))
-    assert "status eq 'delivered'" in f
-    assert "status eq 'failed'" in f
-
-
 def test_build_filter_rejects_invalid_status():
     with pytest.raises(ActionFailure, match="Valid values are"):
         _build_filter(make_params(status="bogus"))
-
-
-def test_build_filter_rejects_mixed_valid_and_invalid_status():
-    with pytest.raises(ActionFailure, match="bogus"):
-        _build_filter(make_params(status="delivered, bogus"))
 
 
 # --------------------------------------------------------------------------- #
@@ -190,9 +195,32 @@ def test_trace_email_rejects_delegated_asset(mocker):
     mocker.patch.object(trace_module, "MsGraphHelper", return_value=helper)
     asset = Mock()
     asset.admin_access = False
+    asset.auth_type = "automatic"
+    asset.client_secret = "dummy"  # pragma: allowlist secret
     with pytest.raises(ActionFailure, match="application-only"):
         trace_email.__wrapped__(make_params(), Mock(), asset)
     helper.make_rest_call_helper.assert_not_called()
+
+
+def test_trace_email_accepts_certificate_asset(mocker):
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [{"value": []}]
+    mocker.patch.object(trace_module, "MsGraphHelper", return_value=helper)
+    asset = Mock()
+    asset.admin_access = False
+    asset.auth_type = "Certificate Based Authentication(CBA)"
+    asset.client_secret = ""
+    assert trace_email.__wrapped__(make_params(), Mock(), asset) == []
+
+
+def test_trace_email_default_range_caps_results(mocker):
+    _, helper = run_action(mocker, make_params(), [{"value": []}])
+    assert helper.make_rest_call_helper.call_args.kwargs["params"]["$top"] == "1000"
+
+
+def test_trace_email_top_follows_range(mocker):
+    _, helper = run_action(mocker, make_params(range="0-4"), [{"value": []}])
+    assert helper.make_rest_call_helper.call_args.kwargs["params"]["$top"] == "5"
 
 
 def test_trace_email_uses_v1_message_trace_endpoint(mocker):

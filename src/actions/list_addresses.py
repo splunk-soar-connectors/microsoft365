@@ -5,7 +5,12 @@ from soar_sdk.exceptions import ActionFailure
 from soar_sdk.params import Param, Params
 
 from ..app import Asset, app
-from ..helper import GraphPaginationState, MsGraphHelper, escape_odata_string
+from ..helper import (
+    GraphPaginationState,
+    MsGraphHelper,
+    encode_path_segment,
+    escape_odata_string,
+)
 
 
 # Graph @odata.type -> legacy mailbox type label. Only these mail-capable types
@@ -94,6 +99,21 @@ def _resolve_group_id(helper: MsGraphHelper, group: str) -> str:
     )
 
 
+@app.view_handler(template="office365_list_addresses.html")
+def render_list_addresses(output: list[DistributionListMember]) -> dict:
+    members = [
+        {
+            "mail": member.mail,
+            "display_name": member.displayName,
+            "mailbox_type": member.mailboxType,
+            "user_principal_name": member.userPrincipalName,
+            "id": member.id,
+        }
+        for member in output
+    ]
+    return {"results": [{"data": bool(members), "members": members}]}
+
+
 @app.action(
     description=(
         "Expand a distribution list into its members. Takes a group by email "
@@ -102,6 +122,7 @@ def _resolve_group_id(helper: MsGraphHelper, group: str) -> str:
     ),
     action_type="investigate",
     read_only=True,
+    view_handler=render_list_addresses,
 )
 def list_addresses(
     params: ListAddressesParams, soar: SOARClient, asset: Asset
@@ -113,14 +134,17 @@ def list_addresses(
 
     # transitiveMembers lets Graph expand nested lists; members is direct-only.
     membership = "transitiveMembers" if params.recursive else "members"
-    endpoint = f"/groups/{group_id}/{membership}"
+    endpoint = f"/groups/{encode_path_segment(group_id)}/{membership}"
 
     members = []
     next_link = None
     pagination_state = GraphPaginationState()
     while True:
         resp = helper.make_rest_call_helper(
-            endpoint, nextLink=next_link, pagination_state=pagination_state
+            endpoint,
+            params={"$top": "999"} if next_link is None else None,
+            nextLink=next_link,
+            pagination_state=pagination_state,
         )
         members.extend(resp.get("value", []))
         next_link = resp.get("@odata.nextLink")
@@ -128,6 +152,7 @@ def list_addresses(
             break
 
     results = []
+    skipped = 0
     for member in members:
         odata_type = member.get("@odata.type", "")
         # Skip non-recipient objects (devices, service principals).
@@ -136,6 +161,7 @@ def list_addresses(
         # Skip members with no SMTP address; never substitute the UPN for mail.
         mail = member.get("mail")
         if not mail:
+            skipped += 1
             continue
         results.append(
             DistributionListMember(
@@ -147,5 +173,8 @@ def list_addresses(
             )
         )
 
-    soar.set_message(f"Successfully retrieved {len(results)} addresses")
+    message = f"Successfully retrieved {len(results)} addresses"
+    if skipped:
+        message += f" ({skipped} members without an email address were omitted)"
+    soar.set_message(message)
     return results

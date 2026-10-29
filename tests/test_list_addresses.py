@@ -91,6 +91,29 @@ def test_list_addresses_skips_members_without_mail(mocker):
     assert all(r.mail for r in result)
 
 
+def test_list_addresses_reports_omitted_members_in_message(mocker):
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [GROUP_RESP, MEMBERS_RESP]
+    mocker.patch.object(list_addresses_module, "MsGraphHelper", return_value=helper)
+    soar = Mock()
+    list_addresses.__wrapped__(make_params(), soar, Mock())
+    assert "1 members without an email address" in soar.set_message.call_args.args[0]
+
+
+def test_list_addresses_sends_top_on_first_member_page_only(mocker):
+    page1 = {
+        "value": [
+            {"@odata.type": "#microsoft.graph.user", "id": "u1", "mail": "u1@x.com"}
+        ],
+        "@odata.nextLink": "NEXT",
+    }
+    page2 = {"value": []}
+    _, helper = run_action(mocker, make_params(), [GROUP_RESP, page1, page2])
+    member_calls = helper.make_rest_call_helper.call_args_list[1:]
+    assert member_calls[0].kwargs["params"] == {"$top": "999"}
+    assert member_calls[1].kwargs["params"] is None
+
+
 def test_list_addresses_resolution_requires_mail_enabled(mocker):
     _, helper = run_action(mocker, make_params(), [GROUP_RESP, MEMBERS_RESP])
     group_filter = helper.make_rest_call_helper.call_args_list[0].kwargs["params"][

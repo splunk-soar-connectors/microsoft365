@@ -48,6 +48,14 @@ def escape_odata_string(value: str) -> str:
     return value.replace("'", "''")
 
 
+def is_cba_auth(asset) -> bool:
+    """Return True when the asset authenticates with a certificate (app-only)."""
+    auth_type = (asset.auth_type or "automatic").lower()
+    return auth_type == "certificate based authentication(cba)" or (
+        auth_type == "automatic" and not asset.client_secret
+    )
+
+
 def quote_graph_search_phrase(value: str) -> str:
     """Quote a caller value as one Microsoft Graph search phrase."""
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'

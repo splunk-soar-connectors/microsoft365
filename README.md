@@ -314,10 +314,10 @@ Test Connectivity needs at least one of these permissions:
 | list users | `User.ReadBasic.All` | `User.Read.All` | ReadBasic for basic info only |
 | list groups | `Group.Read.All` | `Group.Read.All` | Group information |
 | list group members | `GroupMember.Read.All` | `Group.Read.All` | Group membership |
-| list addresses | `Group.Read.All` | `Group.Read.All` | Expands a distribution list to its members |
+| list addresses | `Group.Read.All`, `User.Read.All`, `OrgContact.Read.All` | same (Del) | Expands a distribution list. Members of a type the app cannot read come back without an email and are omitted (the count is shown in the result message) |
 | resolve name | `User.Read` + `MailboxSettings.Read` | `User.Read.All` + `MailboxSettings.Read` | User lookup |
 | **Reporting Actions** | | | |
-| trace email | `ExchangeMessageTrace.Read.All` (App) | `ExchangeMessageTrace.Read.All` | Uses the Graph v1.0 message trace API; requires a one-time service principal (see note below) |
+| trace email | `ExchangeMessageTrace.Read.All` (App) | Not supported (app-only) | Uses the Graph v1.0 message trace API; requires a one-time service principal (see note below) |
 | **Settings Actions** | | | |
 | oof check | `MailboxSettings.Read` | `MailboxSettings.Read` | Out-of-office status |
 | get rule | `MailboxSettings.Read` | `MailboxSettings.Read` | Mail rules |
@@ -350,11 +350,13 @@ To use this action:
 1. Add the `ExchangeMessageTrace.Read.All` **Application** permission to your app registration and grant admin consent.
 1. Provision a one-time service principal in your tenant for Microsoft's message trace application (app ID `8bd644d1-64a1-4d4b-ae52-2e0cbf64e373`). This can be done via Microsoft Graph PowerShell (`New-MgServicePrincipal -BodyParameter @{ appId = "8bd644d1-64a1-4d4b-ae52-2e0cbf64e373" }`) or by POSTing to `https://graph.microsoft.com/v1.0/servicePrincipals` with body `{ "appId": "8bd644d1-64a1-4d4b-ae52-2e0cbf64e373" }`. Provisioning may take several hours to complete, during which the action can return `401 Unauthorized`.
 
-Query constraints imposed by the API: results cover the last **90 days**, a single query cannot span more than **10 days**, the end date cannot be in the future, and if no date range is provided the API returns the last **48 hours**. All supplied filters (including `from_ip`) are applied server-side by Graph.
+Query constraints imposed by the API: results cover the last **90 days**, a single query cannot span more than **10 days**, the end date cannot be in the future, and if no date range is provided the API returns the last **48 hours**. The action returns at most 1000 results by default (`range` `0-999`); use `range` to page further. The `internet_message_id` filter matches the ID with or without angle brackets. All supplied filters (including `from_ip`) are applied server-side by Graph.
 
-The `status` parameter accepts one or more comma-separated values from: `gettingStatus`, `pending`, `failed`, `delivered`, `expanded`, `quarantined`, `filteredAsSpam`, `unknownFutureValue` (case-insensitive). Any other value is rejected with a clear error listing the valid options.
+The `status` parameter accepts one value from: `gettingStatus`, `pending`, `failed`, `delivered`, `expanded`, `quarantined`, `filteredAsSpam`, `unknownFutureValue` (case-insensitive). Any other value is rejected with a clear error listing the valid options.
 
-**Authentication:** trace email supports **application-only** (client-credentials) authentication only. Although the shared asset lets you configure delegated (interactive OAuth) authentication, delegated auth is **not supported** for this action: it is enforced in code, and running the action on a delegated asset fails immediately with a clear error. Configure the asset with app-only auth (enable **admin access**, using a client secret or certificate) for this action.
+The `sender address`, `recipient address` and `status` parameters accept a **single value**. Comma-separated lists, which the legacy office365 action accepted, are rejected with a clear error because the Graph message trace API does not support multi-value filters. Run the action once per value.
+
+**Authentication:** trace email supports **application-only** authentication only (client secret with **admin access**, or certificate). Delegated (interactive OAuth) assets are rejected immediately with a clear error.
 
 ### List Addresses Notes
 
@@ -1342,9 +1344,9 @@ Read only: **True**
 
 PARAMETER | REQUIRED | DESCRIPTION | TYPE | CONTAINS
 --------- | -------- | ----------- | ---- | --------
-**sender_address** | optional | The SMTP email address of the user the message was purportedly from. You can specify multiple values separated by commas. | string | `email` |
-**recipient_address** | optional | The SMTP email address of the user that the message was addressed to. You can specify multiple values separated by commas. | string | `email` |
-**status** | optional | Filter by the message delivery status. One or more comma-separated values from: gettingStatus, pending, failed, delivered, expanded, quarantined, filteredAsSpam, unknownFutureValue. | string | |
+**sender_address** | optional | The SMTP email address of the user the message was purportedly from | string | `email` |
+**recipient_address** | optional | The SMTP email address of the user that the message was addressed to | string | `email` |
+**status** | optional | Filter by the message delivery status. One of: gettingStatus, pending, failed, delivered, expanded, quarantined, filteredAsSpam, unknownFutureValue. | string | |
 **message_trace_id** | optional | An identifier used to get the detailed message transfer trace information | string | `office 365 trace id` |
 **start_date** | optional | Start date of the date range (ISO 8601, e.g. 2026-01-20T00:00:00Z) | string | |
 **end_date** | optional | End date of the date range (ISO 8601, e.g. 2026-01-23T00:00:00Z) | string | |
@@ -1352,7 +1354,7 @@ PARAMETER | REQUIRED | DESCRIPTION | TYPE | CONTAINS
 **to_ip** | optional | The IPv4 or IPv6 address that the email system sent the message to | string | `ip` `ipv6` |
 **internet_message_id** | optional | Filters the results by the Internet Message ID (also known as the Client ID) | string | `internet message id` |
 **widget_filter** | optional | Remove the angle brackets from the Internet Message ID field | boolean | |
-**range** | optional | Email range to return (min_offset-max_offset) | string | |
+**range** | optional | Email range to return (min_offset-max_offset). Defaults to 0-999 | string | |
 
 #### Action Output
 
