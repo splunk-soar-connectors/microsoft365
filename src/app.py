@@ -60,7 +60,12 @@ from .consts import (
     MSGOFFICE365_PER_PAGE_COUNT,
     MSGOFFICE365_SELECT_PARAMETER_LIST,
 )
-from .helper import GraphPaginationState, MsGraphHelper, encode_path_segment
+from .helper import (
+    GraphPaginationState,
+    MsGraphHelper,
+    encode_path_segment,
+    is_cba_auth,
+)
 
 
 logger = getLogger()
@@ -398,10 +403,7 @@ def test_connectivity(soar: SOARClient, asset: Asset) -> None:
     logger.info("Using OAuth Redirect URL as:")
     logger.info(redirect_uri)
 
-    auth_type = (asset.auth_type or "automatic").lower()
-    is_cba = auth_type == "certificate based authentication(cba)" or (
-        auth_type == "automatic" and not asset.client_secret
-    )
+    is_cba = is_cba_auth(asset)
 
     if is_cba:
         logger.info("Using Certificate Based Authentication...")
@@ -1279,6 +1281,7 @@ from .actions import (  # noqa: F401
     get_email_properties,
     get_folder_id,
     get_mailbox_messages,
+    list_addresses,
     list_folders,
     list_group_members,
     list_groups,
@@ -1288,6 +1291,7 @@ from .actions import (  # noqa: F401
     oof_check,
     report_message,
     send_email,
+    trace_email,
     unblock_sender,
     update_email,
 )
