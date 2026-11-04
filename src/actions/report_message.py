@@ -50,13 +50,13 @@ def report_message(
     if params.report_action in ["junk", "phish"]:
         endpoint = f"/users/{params.user_id}/messages/{params.message_id}/markAsJunk"
         body = {
-            "moveToJunk": params.is_message_move_requested
+            "MoveToJunk": params.is_message_move_requested
             if params.report_action == "junk"
             else False,
         }
     elif params.report_action == "notJunk":
         endpoint = f"/users/{params.user_id}/messages/{params.message_id}/markAsNotJunk"
-        body = {"moveToInbox": params.is_message_move_requested}
+        body = {"MoveToInbox": params.is_message_move_requested}
     else:
         raise ValueError(f"Unsupported report action: {params.report_action}")
 
