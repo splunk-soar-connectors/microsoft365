@@ -45,6 +45,12 @@ MSGOFFICE365_WELL_KNOWN_FOLDERS_FILTER = [
     "serverfailures",
     "syncissues",
 ]
+# Microsoft Graph v1.0 documents only this Recoverable Items folder as a well-known
+# folder name; other names are rejected with "400 Id is malformed".
+# https://learn.microsoft.com/en-us/graph/api/resources/mailfolder
+MSGOFFICE365_RECOVERABLE_ITEMS_FOLDERS_FILTER = [
+    "recoverableitemsdeletions",
+]
 MSGOFFICE365_STATE_FILE_CORRUPT_ERROR = "Error occurred while loading the state file. Resetting the state file with the default format."
 MSGOFFICE365_INVALID_PERMISSION_ERROR = (
     "Error occurred while saving the newly generated access token in the state file."
