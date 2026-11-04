@@ -1534,9 +1534,9 @@ PARAMETER | REQUIRED | DESCRIPTION | TYPE | CONTAINS
 **sender** | optional | Sender email to search | string | |
 **body** | optional | Substring to search in body | string | |
 **internet_message_id** | optional | Internet Message ID to search | string | |
-**limit** | optional | Maximum number of emails to return | numeric | |
+**limit** | optional | Maximum number of emails to return (applied separately to the selected folder and, if enabled, to the Recoverable Items folder) | numeric | |
 **search_well_known_folders** | optional | Search in well-known folders | boolean | |
-**search_recoverable_items_folders** | optional | Include Recoverable Items subfolders in the search; returns up to the limit from the selected search scope and each Recoverable Items folder | boolean | |
+**search_recoverable_items_folders** | optional | Also search the Recoverable Items deletions folder (soft-deleted items) | boolean | |
 
 #### Action Output
 

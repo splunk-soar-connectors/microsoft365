@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 
 from soar_sdk.abstract import SOARClient
 from soar_sdk.action_results import ActionOutput
+from soar_sdk.exceptions import ActionFailure
+from soar_sdk.logging import getLogger
 from soar_sdk.params import Param, Params
 
 
@@ -17,11 +19,15 @@ from ..consts import (
 )
 from ..helper import (
     GraphPaginationState,
+    GraphTokenRejected,
     MsGraphHelper,
     escape_odata_string,
     quote_graph_search_phrase,
     serialize_complex_fields,
 )
+
+
+logger = getLogger()
 
 
 class RunQueryParams(Params):
@@ -61,7 +67,7 @@ class RunQueryParams(Params):
         default="",
     )
     limit: int = Param(
-        description="Maximum number of emails to return",
+        description="Maximum number of emails to return (applied separately to the selected folder and, if enabled, to the Recoverable Items folder)",
         required=False,
         default=100,
     )
@@ -71,7 +77,7 @@ class RunQueryParams(Params):
         default=False,
     )
     search_recoverable_items_folders: bool = Param(
-        description="Include Recoverable Items subfolders in the search",
+        description="Also search the Recoverable Items deletions folder (soft-deleted items)",
         required=False,
         default=False,
     )
@@ -134,6 +140,28 @@ def render_run_query(output: list[EmailResult]) -> dict:
     return {"results": results}
 
 
+def _fetch_messages(helper, endpoint, api_params, limit):
+    """Fetch up to `limit` messages from a single Graph endpoint."""
+    items = []
+    next_link = None
+    pagination_state = GraphPaginationState()
+    page_params = api_params.copy()
+    while len(items) < limit:
+        resp = helper.make_rest_call_helper(
+            endpoint,
+            params=page_params,
+            nextLink=next_link,
+            pagination_state=pagination_state,
+        )
+        items.extend(resp.get("value", []))
+
+        next_link = resp.get("@odata.nextLink")
+        if not next_link:
+            break
+        page_params = None
+    return items[:limit]
+
+
 def run_query(
     params: RunQueryParams, soar: SOARClient, asset: "Asset"
 ) -> list[EmailResult]:
@@ -153,13 +181,6 @@ def run_query(
         endpoint = f"/users/{params.email_address}/messages"
     else:
         endpoint = f"/users/{params.email_address}/mailFolders/{folder_id}/messages"
-
-    endpoints = [endpoint]
-    if params.search_recoverable_items_folders:
-        endpoints.extend(
-            f"/users/{params.email_address}/mailFolders/{folder}/messages"
-            for folder in MSGOFFICE365_RECOVERABLE_ITEMS_FOLDERS_FILTER
-        )
 
     filters = []
     if params.subject:
@@ -186,28 +207,31 @@ def run_query(
     if params.limit:
         api_params["$top"] = str(min(params.limit, MSGOFFICE365_PER_PAGE_COUNT))
 
-    emails = []
-    for endpoint in endpoints:
-        endpoint_emails = []
-        next_link = None
-        pagination_state = GraphPaginationState()
-        endpoint_params = api_params.copy()
-        while len(endpoint_emails) < params.limit:
-            resp = helper.make_rest_call_helper(
-                endpoint,
-                params=endpoint_params,
-                nextLink=next_link,
-                pagination_state=pagination_state,
+    # The selected search scope: any failure here fails the action, as before.
+    emails = _fetch_messages(helper, endpoint, api_params, params.limit)
+
+    # Recoverable Items folders are best-effort: a failing folder is skipped so the
+    # results from the selected scope are still returned.
+    skipped_folders = []
+    if params.search_recoverable_items_folders:
+        for folder in MSGOFFICE365_RECOVERABLE_ITEMS_FOLDERS_FILTER:
+            folder_endpoint = (
+                f"/users/{params.email_address}/mailFolders/{folder}/messages"
             )
-            endpoint_emails.extend(resp.get("value", []))
+            try:
+                emails.extend(
+                    _fetch_messages(helper, folder_endpoint, api_params, params.limit)
+                )
+            except GraphTokenRejected:
+                raise
+            except ActionFailure as e:
+                logger.warning(f"Skipping Recoverable Items folder '{folder}': {e}")
+                skipped_folders.append(folder)
 
-            next_link = resp.get("@odata.nextLink")
-            if not next_link:
-                break
-            endpoint_params = None
-
-        emails.extend(endpoint_emails[: params.limit])
     emails = [serialize_complex_fields(e, ["sender"]) for e in emails]
-    soar.set_message(f"Successfully retrieved {len(emails)} emails")
+    message = f"Successfully retrieved {len(emails)} emails"
+    if skipped_folders:
+        message += f" (skipped Recoverable Items folders: {', '.join(skipped_folders)})"
+    soar.set_message(message)
     soar.set_summary(RunQuerySummary(emails_matched=len(emails)))
     return [EmailResult(**e) for e in emails]
