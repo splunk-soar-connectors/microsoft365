@@ -1,9 +1,8 @@
 **Unreleased**
 
-* Added the **list addresses** action to expand a distribution list into its member email addresses using the Microsoft Graph API
-* Added the **trace email** action to retrieve email message trace data using the Microsoft Graph message trace API
-* The **trace email** action returns at most 1000 results by default; use the `range` parameter for more. The result message says when more results are available
-* **list addresses** reports `summary.total_entries` and `summary.members_omitted`; it expands distribution lists, mail-enabled security groups and Microsoft 365 groups
-* **trace email** supports both application and delegated authentication
-* **trace email**: `sender address`, `recipient address` and `status` accept a single value; comma-separated lists from the legacy office365 action are not supported by the Graph message trace API
-* Note: because these actions are now backed by the Microsoft Graph API, their output data paths follow the Graph response shape and differ from the legacy office365 (EWS) app. Playbooks migrating from office365 that reference the old EWS output paths must be updated to the new data paths documented in the README
+* Added the **list addresses** action to expand a mail-enabled group into its members using the Microsoft Graph API
+* Added the **trace email** action to retrieve message trace data using the Microsoft Graph message trace API
+* **Breaking**: **list addresses** and **trace email** output data paths follow the Graph response shape. Update playbooks that use the legacy office365 paths (see the README migration tables)
+* **Breaking**: **list addresses** no longer has the `impersonate_email` parameter
+* **Breaking**: **trace email** rejects comma-separated `sender address`, `recipient address` and `status` values; each accepts a single value
+* **Breaking**: **trace email** returns at most 1000 results by default; use the `range` parameter for more
