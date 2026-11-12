@@ -303,7 +303,10 @@ Test Connectivity needs at least one of these permissions:
 | list users | `User.ReadBasic.All` | `User.Read.All` | ReadBasic for basic info only |
 | list groups | `Group.Read.All` | `Group.Read.All` | Group information |
 | list group members | `GroupMember.Read.All` | `Group.Read.All` | Group membership |
+| list addresses | `Group.Read.All`, `User.Read.All`, `OrgContact.Read.All` | same (Del) | Expands a mail-enabled group. Members of a type the app cannot read come back without an email and are omitted (the count is shown in the result message) |
 | resolve name | `User.Read` + `MailboxSettings.Read` | `User.Read.All` + `MailboxSettings.Read` | User lookup |
+| **Reporting Actions** | | | |
+| trace email | `ExchangeMessageTrace.Read.All` (App) | `ExchangeMessageTrace.Read.All` (Del) | Uses the Graph v1.0 message trace API; requires a one-time service principal (see note below) |
 | **Settings Actions** | | | |
 | oof check | `MailboxSettings.Read` | `MailboxSettings.Read` | Out-of-office status |
 | get rule | `MailboxSettings.Read` | `MailboxSettings.Read` | Mail rules |
@@ -326,6 +329,65 @@ Attachment use requires both `Mail.Send` and `Mail.ReadWrite`. Microsoft 365 ten
 - **Test Connectivity**: Always requires at least `User.Read.All` (App) or `User.Read` (Del)
 - **Beta APIs**: Block/unblock sender actions use Microsoft Graph beta endpoints
 - When you add the scope parameter, multiple scopes are passed as space-separated values. <br>For example: `https://graph.microsoft.com/User.Read https://graph.microsoft.com/Calendars.Read` <br>This means the scopes `User.Read` and `Calendars.Read` are being requested.
+
+### Trace Email Setup (Graph Message Trace API)
+
+The **trace email** action uses the Microsoft Graph message trace API (`GET /v1.0/admin/exchange/tracing/messageTraces`), which replaces the legacy Office 365 Reporting Web Service that the deprecated `office365` (EWS) app relied on. The legacy Reporting Web Service is being retired by Microsoft (starting April 6, 2026), so this action is Graph-native.
+
+To use this action:
+
+1. Add the `ExchangeMessageTrace.Read.All` **Application** permission to your app registration and grant admin consent.
+1. Provision a one-time service principal in your tenant for Microsoft's message trace application (app ID `8bd644d1-64a1-4d4b-ae52-2e0cbf64e373`). This can be done via Microsoft Graph PowerShell (`New-MgServicePrincipal -BodyParameter @{ appId = "8bd644d1-64a1-4d4b-ae52-2e0cbf64e373" }`) or by POSTing to `https://graph.microsoft.com/v1.0/servicePrincipals` with body `{ "appId": "8bd644d1-64a1-4d4b-ae52-2e0cbf64e373" }`. Provisioning may take several hours to complete, during which the action can return `401 Unauthorized`.
+
+Query constraints imposed by the API: results cover the last **90 days**, a single query cannot span more than **10 days**, the end date cannot be in the future, and if no date range is provided the API returns the last **48 hours**. The action returns at most 1000 results by default (`range` `0-999`); use `range` to page further. The result message says when more results are available, and when an empty result came from the default 48-hour window. The `internet_message_id` filter matches the ID with or without angle brackets. All supplied filters (including `from_ip`) are applied server-side by Graph.
+
+The `status` parameter accepts one value from: `gettingStatus`, `pending`, `failed`, `delivered`, `expanded`, `quarantined`, `filteredAsSpam`, `unknownFutureValue` (case-insensitive). Any other value is rejected with a clear error listing the valid options.
+
+The `sender address`, `recipient address` and `status` parameters accept a **single value**. Comma-separated lists, which the legacy office365 action accepted, are rejected with a clear error because the Graph message trace API does not support multi-value filters. Run the action once per value.
+
+**Authentication:** trace email supports both application and delegated authentication. For delegated (OAuth) assets, add `https://graph.microsoft.com/ExchangeMessageTrace.Read.All` to the asset's **scope** field and grant consent. The one-time service principal above is required either way.
+
+### List Addresses Notes
+
+The **list addresses** action expands a mail-enabled group (distribution list, mail-enabled security group, or Microsoft 365 group) via Microsoft Graph (`/groups/{id}/members`, or `/groups/{id}/transitiveMembers` when `recursive` is set). Behavior differences from the legacy office365 (EWS) action:
+
+- **Only mail-capable recipients are returned** — users (mailboxes), mail-enabled groups (nested distribution lists), and contacts. Directory objects that are not mail recipients (devices, service principals) are excluded, and members without an email address are omitted entirely. The `mail` field reflects the member's real email address only; the member's `userPrincipalName` is reported in its own field and never substituted for `mail`.
+- **Distribution lists, mail-enabled security groups and Microsoft 365 groups are supported.** Without `recursive`, a nested Microsoft 365 group is reported with `mailboxType` `GroupMailbox` and other nested groups as `PublicDL`. With `recursive`, nested groups are expanded and only their members are returned; the nested groups themselves are not listed. Expanding a large Microsoft 365 group can return many members, including guest users that have an email address.
+- **Dynamic distribution groups are not supported.** Graph resolves the input through `/groups` and only matches mail-enabled groups, so a dynamic distribution group, a mail-disabled security group, or an otherwise unresolvable list returns a clear "No mail-enabled group found" error. If the display name you provide matches more than one group, specify the exact email address or alias (mailNickname) to disambiguate.
+- **The `impersonate_email` parameter is removed.** Microsoft Graph reads group membership with the app's own permissions, so impersonation is not needed. Remove this parameter from migrated playbooks.
+
+### Migrating Playbooks from office365 (EWS)
+
+Output data paths changed for the actions below. Update playbooks that reference the legacy paths.
+
+**list addresses**
+
+| Legacy office365 path | microsoft365 path |
+|---|---|
+| `action_result.data.*.t_EmailAddress` | `action_result.data.*.mail` |
+| `action_result.data.*.t_Name` | `action_result.data.*.displayName` |
+| `action_result.data.*.t_MailboxType` | `action_result.data.*.mailboxType` |
+| `action_result.data.*.t_RoutingType` | Not returned |
+| `action_result.parameter.impersonate_email` | Removed (parameter no longer exists) |
+| `action_result.summary.total_entries` | `action_result.summary.total_entries` |
+| (none) | `action_result.data.*.userPrincipalName`, `action_result.data.*.id`, `action_result.summary.members_omitted` |
+
+**trace email** (legacy results were nested one level deeper, `data.*.*`)
+
+| Legacy office365 path | microsoft365 path |
+|---|---|
+| `action_result.data.*.*.SenderAddress` | `action_result.data.*.senderAddress` |
+| `action_result.data.*.*.RecipientAddress` | `action_result.data.*.recipientAddress` |
+| `action_result.data.*.*.Subject` | `action_result.data.*.subject` |
+| `action_result.data.*.*.Status` | `action_result.data.*.status` |
+| `action_result.data.*.*.Received` | `action_result.data.*.receivedDateTime` |
+| `action_result.data.*.*.FromIP` | `action_result.data.*.fromIP` |
+| `action_result.data.*.*.ToIP` | `action_result.data.*.toIP` |
+| `action_result.data.*.*.MessageId` | `action_result.data.*.messageId` |
+| `action_result.data.*.*.MessageTraceId` | `action_result.data.*.id` |
+| `action_result.data.*.*.Size` | `action_result.data.*.size` |
+| `action_result.data.*.*.StartDate`, `EndDate`, `Index`, `Organization`, `__metadata.*` | Not returned |
+| `action_result.summary.emails_found` | `action_result.summary.emails_found` |
 
 ## User Permissions Setup
 
