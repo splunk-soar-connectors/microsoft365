@@ -62,6 +62,7 @@
                 <th>Received DateTime</th>
                 <th>From IP</th>
                 <th>To IP</th>
+                <th>Message ID</th>
               </tr>
             </thead>
             <tbody>
@@ -74,6 +75,7 @@
                   <td>{{ email.received_date_time or "None" }}</td>
                   <td>{{ email.from_ip or "None" }}</td>
                   <td>{{ email.to_ip or "None" }}</td>
+                  <td>{{ email.message_id or "None" }}</td>
                 </tr>
               {% endfor %}
             </tbody>

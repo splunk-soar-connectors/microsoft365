@@ -6,7 +6,7 @@ from soar_sdk.action_results import ActionOutput
 from soar_sdk.params import Param, Params
 
 from ..app import Asset, app
-from ..helper import MsGraphHelper
+from ..helper import MsGraphHelper, serialize_complex_fields
 
 
 class UpdateEmailParams(Params):
@@ -65,4 +65,4 @@ def update_email(
     resp = helper.make_rest_call_helper(endpoint, method="patch", data=json.dumps(body))
 
     soar.set_message("Successfully updated email")
-    return UpdateEmailOutput(**resp)
+    return UpdateEmailOutput(**serialize_complex_fields(resp, ["categories"]))

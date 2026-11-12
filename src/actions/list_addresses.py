@@ -1,6 +1,6 @@
 # Copyright (c) 2017-2026 Splunk Inc.
 from soar_sdk.abstract import SOARClient
-from soar_sdk.action_results import ActionOutput
+from soar_sdk.action_results import ActionOutput, OutputField
 from soar_sdk.exceptions import ActionFailure
 from soar_sdk.params import Param, Params
 
@@ -24,13 +24,13 @@ MEMBER_TYPE_MAP = {
 
 class ListAddressesParams(Params):
     group: str = Param(
-        description="Distribution List to expand (email address or display name)",
+        description="Mail-enabled group to expand (email address or display name)",
         required=True,
         primary=True,
         cef_types=["email", "exchange distribution list"],
     )
     recursive: bool = Param(
-        description="Expand all sub distribution lists",
+        description="Expand all nested groups and return only their members",
         required=False,
         default=False,
     )
@@ -39,13 +39,29 @@ class ListAddressesParams(Params):
 class DistributionListMember(ActionOutput):
     id: str | None = None
     displayName: str | None = None
-    mail: str | None = None
-    userPrincipalName: str | None = None
+    mail: str | None = OutputField(cef_types=["email"])
+    userPrincipalName: str | None = OutputField(
+        cef_types=["msgoffice365 user principal name"]
+    )
     mailboxType: str | None = None
 
 
+class ListAddressesSummary(ActionOutput):
+    total_entries: int = 0
+    members_omitted: int = 0
+
+
+def _member_mailbox_type(member: dict, odata_type: str) -> str:
+    """Microsoft 365 groups carry 'Unified' in groupTypes; other groups act as DLs."""
+    if odata_type == "#microsoft.graph.group" and "Unified" in (
+        member.get("groupTypes") or []
+    ):
+        return "GroupMailbox"
+    return MEMBER_TYPE_MAP[odata_type]
+
+
 def _resolve_group_id(helper: MsGraphHelper, group: str) -> str:
-    """Resolve a DL email/display name to a group id; error if ambiguous."""
+    """Resolve a mail-enabled group's email/display name to its id; error if ambiguous."""
     escaped = escape_odata_string(group)
     # Match only mail-enabled groups; parens are required as OData binds `and` over `or`.
     api_params = {
@@ -71,13 +87,13 @@ def _resolve_group_id(helper: MsGraphHelper, group: str) -> str:
         next_link = resp.get("@odata.nextLink")
         if not next_link:
             break
+
     if not value:
         raise ActionFailure(
-            f"No mail-enabled distribution list found matching '{group}'. The input "
-            "might not be a valid distribution list, it may be a mail-disabled security "
-            "group, or it may be a dynamic distribution group, which Microsoft Graph "
-            "does not expose (dynamic distribution groups are not supported by this "
-            "action)."
+            f"No mail-enabled group found matching '{group}'. The input might not be "
+            "a mail-enabled group, it may be a mail-disabled security group, or it may "
+            "be a dynamic distribution group, which Microsoft Graph does not expose "
+            "(dynamic distribution groups are not supported by this action)."
         )
     if len(value) == 1:
         return value[0]["id"]
@@ -94,7 +110,7 @@ def _resolve_group_id(helper: MsGraphHelper, group: str) -> str:
         return exact[0]["id"]
 
     raise ActionFailure(
-        f"Multiple distribution lists match '{group}'. Specify the exact email "
+        f"Multiple groups match '{group}'. Specify the exact email "
         "address or alias (mailNickname) to disambiguate."
     )
 
@@ -116,12 +132,14 @@ def render_list_addresses(output: list[DistributionListMember]) -> dict:
 
 @app.action(
     description=(
-        "Expand a distribution list into its members. Takes a group by email "
-        "address or display name and returns a record for each mail-capable member "
-        "(email address, display name, and mailbox type)."
+        "Expand a mail-enabled group (distribution list, mail-enabled security group, "
+        "or Microsoft 365 group) into its members. Takes a group by email address or "
+        "display name and returns a record for each mail-capable member (email address, "
+        "display name, and mailbox type)."
     ),
     action_type="investigate",
     read_only=True,
+    summary_type=ListAddressesSummary,
     view_handler=render_list_addresses,
 )
 def list_addresses(
@@ -158,6 +176,9 @@ def list_addresses(
         # Skip non-recipient objects (devices, service principals).
         if odata_type not in MEMBER_TYPE_MAP:
             continue
+        # Recursive results already include nested groups' members; drop the groups.
+        if params.recursive and odata_type == "#microsoft.graph.group":
+            continue
         # Skip members with no SMTP address; never substitute the UPN for mail.
         mail = member.get("mail")
         if not mail:
@@ -169,7 +190,7 @@ def list_addresses(
                 displayName=member.get("displayName"),
                 mail=mail,
                 userPrincipalName=member.get("userPrincipalName"),
-                mailboxType=MEMBER_TYPE_MAP[odata_type],
+                mailboxType=_member_mailbox_type(member, odata_type),
             )
         )
 
@@ -177,4 +198,7 @@ def list_addresses(
     if skipped:
         message += f" ({skipped} members without an email address were omitted)"
     soar.set_message(message)
+    soar.set_summary(
+        ListAddressesSummary(total_entries=len(results), members_omitted=skipped)
+    )
     return results

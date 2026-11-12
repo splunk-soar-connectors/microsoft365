@@ -2,7 +2,7 @@
 from datetime import UTC, datetime, timedelta
 
 from soar_sdk.abstract import SOARClient
-from soar_sdk.action_results import ActionOutput
+from soar_sdk.action_results import ActionOutput, OutputField
 from soar_sdk.exceptions import ActionFailure
 from soar_sdk.extras.email.utils import is_ip
 from soar_sdk.params import Param, Params
@@ -14,12 +14,7 @@ from ..consts import (
     MSGOFFICE365_MESSAGE_TRACE_ENDPOINT,
     MSGOFFICE365_MESSAGE_TRACE_MAX_TOP,
 )
-from ..helper import (
-    GraphPaginationState,
-    MsGraphHelper,
-    escape_odata_string,
-    is_cba_auth,
-)
+from ..helper import GraphPaginationState, MsGraphHelper, escape_odata_string
 
 
 class TraceEmailParams(Params):
@@ -96,15 +91,15 @@ class TraceEmailParams(Params):
 
 
 class MessageTraceOutput(ActionOutput):
-    id: str | None = None
-    senderAddress: str | None = None
-    recipientAddress: str | None = None
-    messageId: str | None = None
+    id: str | None = OutputField(cef_types=["office 365 trace id"])
+    senderAddress: str | None = OutputField(cef_types=["email"])
+    recipientAddress: str | None = OutputField(cef_types=["email"])
+    messageId: str | None = OutputField(cef_types=["internet message id"])
     receivedDateTime: str | None = None
     subject: str | None = None
     size: int | None = None
-    fromIP: str | None = None
-    toIP: str | None = None
+    fromIP: str | None = OutputField(cef_types=["ip", "ipv6"])
+    toIP: str | None = OutputField(cef_types=["ip", "ipv6"])
     status: str | None = None
 
 
@@ -263,25 +258,19 @@ def render_trace_email(output: list[MessageTraceOutput]) -> dict:
     description=(
         "Get the message trace for emails (Exchange Online) via the Microsoft Graph "
         "v1.0 message-trace API. Requires a one-time message-trace service principal and "
-        "application-only authentication. Query limits: results cover the last 90 days, a "
+        "the ExchangeMessageTrace.Read.All permission (application or delegated). Query "
+        "limits: results cover the last 90 days, a "
         "single query can span at most 10 days, and with no date range the last 48 hours "
         "are returned."
     ),
     action_type="investigate",
     read_only=True,
+    summary_type=TraceEmailSummary,
     view_handler=render_trace_email,
 )
 def trace_email(
     params: TraceEmailParams, soar: SOARClient, asset: Asset
 ) -> list[MessageTraceOutput]:
-    # App-only by design: client credentials or certificate; delegated is rejected.
-    if not (asset.admin_access or is_cba_auth(asset)):
-        raise ActionFailure(
-            "Trace email requires application-only authentication. Use certificate "
-            "authentication, or enable 'admin access' with a client secret; delegated "
-            "OAuth is not supported for this action."
-        )
-
     mini, maxi = 0, MSGOFFICE365_MESSAGE_TRACE_DEFAULT_MAX_OFFSET
     if params.range:
         mini, maxi = _validate_range(params.range)
@@ -320,9 +309,15 @@ def trace_email(
             if row.get("messageId"):
                 row["messageId"] = row["messageId"].replace(">", "").replace("<", "")
 
+    truncated = bool(next_link) or len(results) > maxi + 1
     results = results[mini : maxi + 1]
 
-    soar.set_message(f"Emails found: {len(results)}")
+    message = f"Emails found: {len(results)}"
+    if truncated:
+        message += " (more results available; use 'range' to page further)"
+    elif not results and not params.start_date:
+        message += " (no date range given; only the last 48 hours were searched)"
+    soar.set_message(message)
     soar.set_summary(TraceEmailSummary(emails_found=len(results)))
     return [
         MessageTraceOutput(

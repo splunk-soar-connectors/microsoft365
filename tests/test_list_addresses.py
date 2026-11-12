@@ -100,6 +100,17 @@ def test_list_addresses_reports_omitted_members_in_message(mocker):
     assert "1 members without an email address" in soar.set_message.call_args.args[0]
 
 
+def test_list_addresses_sets_summary_counts(mocker):
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = [GROUP_RESP, MEMBERS_RESP]
+    mocker.patch.object(list_addresses_module, "MsGraphHelper", return_value=helper)
+    soar = Mock()
+    list_addresses.__wrapped__(make_params(), soar, Mock())
+    summary = soar.set_summary.call_args.args[0]
+    assert summary.total_entries == 2
+    assert summary.members_omitted == 1
+
+
 def test_list_addresses_sends_top_on_first_member_page_only(mocker):
     page1 = {
         "value": [
@@ -215,6 +226,26 @@ AMBIGUOUS_RESP = {
 }
 
 
+SECURITY_GROUP = {
+    "id": "SEC",
+    "displayName": "Sec",
+    "mail": "sec@x.com",
+    "mailNickname": "sec",
+    "groupTypes": [],
+}
+
+
+def test_list_addresses_accepts_mail_enabled_security_group(mocker):
+    _, helper = run_action(
+        mocker,
+        make_params(group="sec@x.com"),
+        [{"value": [SECURITY_GROUP]}, MEMBERS_RESP],
+    )
+    assert (
+        helper.make_rest_call_helper.call_args_list[1].args[0] == "/groups/SEC/members"
+    )
+
+
 def test_list_addresses_ambiguous_display_name_raises(mocker):
     # Multiple groups match a shared display name with no exact alias -> error.
     with pytest.raises(ActionFailure):
@@ -229,3 +260,24 @@ def test_list_addresses_ambiguous_resolves_by_exact_alias(mocker):
     assert (
         helper.make_rest_call_helper.call_args_list[1].args[0] == "/groups/GID2/members"
     )
+
+
+def test_render_list_addresses_builds_table_rows():
+    from src.actions.list_addresses import DistributionListMember, render_list_addresses
+
+    member = DistributionListMember(
+        mail="u1@x.com", displayName="User One", mailboxType="Mailbox"
+    )
+    context = render_list_addresses.__wrapped__([member])
+    result = context["results"][0]
+    assert result["data"] is True
+    assert result["members"][0]["mail"] == "u1@x.com"
+    assert result["members"][0]["mailbox_type"] == "Mailbox"
+
+
+def test_render_list_addresses_empty():
+    from src.actions.list_addresses import render_list_addresses
+
+    assert render_list_addresses.__wrapped__([]) == {
+        "results": [{"data": False, "members": []}]
+    }

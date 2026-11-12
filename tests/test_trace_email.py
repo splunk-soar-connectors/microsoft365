@@ -10,6 +10,7 @@ from soar_sdk.exceptions import ActionFailure
 
 from src.actions.trace_email import (
     MSGOFFICE365_MESSAGE_TRACE_ENDPOINT,
+    MessageTraceOutput,
     TraceEmailParams,
     _build_filter,
     _eq_clause,
@@ -189,17 +190,16 @@ def test_build_filter_rejects_invalid_status():
 # --------------------------------------------------------------------------- #
 # trace_email handler
 # --------------------------------------------------------------------------- #
-def test_trace_email_rejects_delegated_asset(mocker):
-    # The message-trace API is app-only; a delegated asset must fail fast.
+def test_trace_email_accepts_delegated_asset(mocker):
     helper = Mock()
+    helper.make_rest_call_helper.side_effect = [{"value": []}]
     mocker.patch.object(trace_module, "MsGraphHelper", return_value=helper)
     asset = Mock()
     asset.admin_access = False
-    asset.auth_type = "automatic"
+    asset.auth_type = "OAuth"
     asset.client_secret = "dummy"  # pragma: allowlist secret
-    with pytest.raises(ActionFailure, match="application-only"):
-        trace_email.__wrapped__(make_params(), Mock(), asset)
-    helper.make_rest_call_helper.assert_not_called()
+    assert trace_email.__wrapped__(make_params(), Mock(), asset) == []
+    helper.make_rest_call_helper.assert_called_once()
 
 
 def test_trace_email_accepts_certificate_asset(mocker):
@@ -269,6 +269,33 @@ def test_trace_email_sets_emails_found_summary(mocker):
     assert soar.set_summary.call_args.args[0].emails_found == 2
 
 
+def _run_with_soar(mocker, params, responses):
+    helper = Mock()
+    helper.make_rest_call_helper.side_effect = list(responses)
+    mocker.patch.object(trace_module, "MsGraphHelper", return_value=helper)
+    soar = Mock()
+    trace_email.__wrapped__(params, soar, Mock())
+    return soar.set_message.call_args.args[0]
+
+
+def test_trace_email_message_flags_truncation(mocker):
+    resp = {"value": [{"id": str(i)} for i in range(3)], "@odata.nextLink": "NEXT"}
+    message = _run_with_soar(mocker, make_params(range="0-1"), [resp])
+    assert message.startswith("Emails found: 2")
+    assert "more results available" in message
+
+
+def test_trace_email_message_hints_default_window_when_empty(mocker):
+    message = _run_with_soar(mocker, make_params(), [{"value": []}])
+    assert "last 48 hours" in message
+
+
+def test_trace_email_message_no_hint_with_dates(mocker):
+    params = make_params(start_date=_iso(3), end_date=_iso(1))
+    message = _run_with_soar(mocker, params, [{"value": []}])
+    assert message == "Emails found: 0"
+
+
 def test_trace_email_widget_filter_strips_brackets(mocker):
     resp = {"value": [{"id": "1", "messageId": "<m1>"}]}
     result, _ = run_action(mocker, make_params(widget_filter=True), [resp])
@@ -327,3 +354,24 @@ def test_trace_email_maps_output_fields(mocker):
     assert row.fromIP == "8.8.8.8"
     assert row.toIP == "9.9.9.9"
     assert row.status == "delivered"
+
+
+def test_render_trace_email_builds_table_rows():
+    from src.actions.trace_email import render_trace_email
+
+    row = MessageTraceOutput(
+        senderAddress="a@x.com", recipientAddress="b@x.com", messageId="<m1>"
+    )
+    context = render_trace_email.__wrapped__([row])
+    result = context["results"][0]
+    assert result["data"] is True
+    assert result["emails"][0]["sender_address"] == "a@x.com"
+    assert result["emails"][0]["message_id"] == "<m1>"
+
+
+def test_render_trace_email_empty():
+    from src.actions.trace_email import render_trace_email
+
+    assert render_trace_email.__wrapped__([]) == {
+        "results": [{"data": False, "emails": []}]
+    }
