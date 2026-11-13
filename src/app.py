@@ -1063,23 +1063,41 @@ def on_es_poll(
 
     emails_processed = 0
     latest_time = last_time
-    new_boundary_ids: set[str] = set()
-    next_link = None
+    new_boundary_ids: set[str] = set(boundary_ids)
+    pending_key = "es_pending_message_ids"
+    next_link_key = "es_next_link"
+    pending_ids = list(state.get(pending_key, []))
+    next_link = state.get(next_link_key)
     pagination_state = GraphPaginationState()
 
     while emails_processed < max_emails:
-        resp = helper.make_rest_call_helper(
-            endpoint,
-            params=api_params if next_link is None else None,
-            nextLink=next_link,
-            pagination_state=pagination_state,
-        )
+        if pending_ids:
+            # Re-read metadata by ID: the saved timestamp may be newer than
+            # unprocessed messages from a descending page.
+            resp = {
+                "value": [
+                    helper.make_rest_call_helper(
+                        f"/users/{email_address}/messages/{encode_path_segment(message_id)}",
+                        params={"$select": select_fields},
+                    )
+                    for message_id in pending_ids
+                ],
+                "@odata.nextLink": next_link,
+            }
+            pending_ids = []
+        else:
+            resp = helper.make_rest_call_helper(
+                endpoint,
+                params=api_params if next_link is None else None,
+                nextLink=next_link,
+                pagination_state=pagination_state,
+            )
         emails = resp.get("value", [])
 
         if not emails:
             break
 
-        for email_data in emails:
+        for position, email_data in enumerate(emails):
             if emails_processed >= max_emails:
                 break
 
@@ -1254,6 +1272,18 @@ def on_es_poll(
                 state["es_first_run"] = False
                 state["es_boundary_ids"] = list(new_boundary_ids)
 
+            # Stage every remaining ID and continuation before yielding; the
+            # SDK commits this state only after a successful finding batch.
+            remaining_ids = [item["id"] for item in emails[position + 1 :]]
+            if remaining_ids:
+                state[pending_key] = remaining_ids
+            else:
+                state.pop(pending_key, None)
+            if resp.get("@odata.nextLink"):
+                state[next_link_key] = resp["@odata.nextLink"]
+            else:
+                state.pop(next_link_key, None)
+
             yield Finding(
                 rule_title=rule_title[:100],
                 email=finding_email,
@@ -1261,6 +1291,12 @@ def on_es_poll(
             )
 
         next_link = resp.get("@odata.nextLink")
+        if emails_processed < max_emails:
+            state.pop(pending_key, None)
+            if next_link:
+                state[next_link_key] = next_link
+            else:
+                state.pop(next_link_key, None)
         if not next_link or emails_processed >= max_emails:
             break
         api_params = None
