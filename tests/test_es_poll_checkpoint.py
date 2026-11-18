@@ -86,20 +86,20 @@ def runtime(monkeypatch, mocker):
 
 
 @pytest.mark.parametrize("manner", ["oldest first", "latest first"])
-def test_failed_batch_replays_without_repeating_successful_batches(runtime, manner):
+def test_failed_email_is_skipped_without_replaying_processed_mail(runtime, manner):
     context = runtime
     context.asset.ingest_manner = manner
     expected = expected_order(context)
     context.failed = expected[2]
     assert module.on_es_poll(OnESPollParams())
-    assert context.sent == expected[:4] + [expected[2]] * 2
+    assert context.sent == expected[:4] + [expected[2]] * 2 + expected[4:]
     result = module.app.actions_manager.add_result.call_args.args[0]
     assert result.get_summary()["failed"] == 1
     assert not context.asset.ingest_state.in_transaction
     context.failed = None
     context.sent.clear()
     assert module.on_es_poll(OnESPollParams())
-    assert context.sent == expected[2:]
+    assert context.sent == []
     assert not context.asset.ingest_state.in_transaction
 
 
@@ -117,7 +117,7 @@ def test_equal_timestamps_retain_previously_checkpointed_ids(runtime):
     context.failed = None
     context.sent.clear()
     assert module.on_es_poll(OnESPollParams())
-    assert context.sent == expected[2:]
+    assert context.sent == []
     context.sent.clear()
     assert module.on_es_poll(OnESPollParams())
     assert context.sent == []
@@ -193,10 +193,10 @@ def test_latest_first_pending_window_survives_new_mail_arrival(runtime):
     context.failed = None
     context.sent.clear()
     assert module.on_es_poll(OnESPollParams())
-    assert context.sent == expected[2:]
+    assert context.sent == ["mail-7"]
     context.sent.clear()
     assert module.on_es_poll(OnESPollParams())
-    assert context.sent == ["mail-7"]
+    assert context.sent == []
 
 
 def test_page_request_failure_preserves_previous_batch(runtime):
@@ -210,3 +210,80 @@ def test_page_request_failure_preserves_previous_batch(runtime):
     context.sent.clear()
     assert module.on_es_poll(OnESPollParams())
     assert context.sent == expected[2:]
+
+
+@pytest.mark.parametrize("manner", ["oldest first", "latest first"])
+@pytest.mark.parametrize("bad_number", [1, 3, 6])
+@pytest.mark.parametrize("kind", ["pending_fetch", "build"])
+def test_individual_message_failure_advances_persisted_checkpoint(
+    runtime, mocker, manner, bad_number, kind, capsys
+):
+    context = runtime
+    context.asset.ingest_manner = manner
+    bad_id = f"mail-{bad_number}"
+    private_error = "private-message-body-never-log"
+    if kind == "build":
+        original = module._build_es_finding
+
+        def build(helper, asset, email_data):
+            if email_data["id"] == bad_id:
+                raise ValueError(private_error)
+            return original(helper, asset, email_data)
+
+        mocker.patch.object(module, "_build_es_finding", side_effect=build)
+    else:
+        context.asset.ingest_state["es_pending_message_ids"] = expected_order(context)
+        helper = module.MsGraphHelper.return_value
+        original = helper.make_rest_call_helper.side_effect
+
+        def fetch(endpoint, **kwargs):
+            if endpoint.endswith("/messages/" + bad_id):
+                raise RuntimeError(private_error)
+            return original(endpoint, **kwargs)
+
+        helper.make_rest_call_helper.side_effect = fetch
+    expected = [
+        identifier for identifier in expected_order(context) if identifier != bad_id
+    ]
+    assert module.on_es_poll(OnESPollParams())
+    assert context.sent == expected
+    logs = capsys.readouterr().out
+    assert "Skipping" in logs
+    assert private_error not in logs
+    context.asset._ingest_state = AssetState(
+        module.app.actions_manager, "ingest", "1", encrypted=False
+    )
+    context.sent.clear()
+    assert module.on_es_poll(OnESPollParams())
+    assert context.sent == []
+
+
+def test_all_pending_fetch_failures_are_persisted_without_blocking_new_mail(runtime):
+    context = runtime
+    context.asset.ingest_state["es_pending_message_ids"] = expected_order(context)
+    helper = module.MsGraphHelper.return_value
+    original = helper.make_rest_call_helper.side_effect
+
+    def fetch(endpoint, **kwargs):
+        if endpoint.split("/")[-1] in context.rows:
+            raise RuntimeError("Synthetic metadata failure")
+        return original(endpoint, **kwargs)
+
+    helper.make_rest_call_helper.side_effect = fetch
+    assert module.on_es_poll(OnESPollParams())
+    assert context.sent == []
+    assert set(context.asset.ingest_state["es_skipped_message_ids"]) == set(
+        context.rows
+    )
+    assert module.on_es_poll(OnESPollParams())
+    assert context.sent == []
+    assert "es_skipped_message_ids" not in context.asset.ingest_state
+    context.rows["mail-7"] = {
+        "id": "mail-7",
+        "subject": "mail-7",
+        "receivedDateTime": (
+            datetime(2026, 11, 13, tzinfo=UTC) + timedelta(minutes=7)
+        ).isoformat(),
+    }
+    assert module.on_es_poll(OnESPollParams())
+    assert context.sent == ["mail-7"]
