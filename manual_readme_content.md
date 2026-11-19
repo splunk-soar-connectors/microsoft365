@@ -577,3 +577,11 @@ This section explains each configuration field in user-friendly terms.
 #### **Extract URLs** - Finds and creates URL artifacts from email content for threat intelligence and phishing analysis
 
 #### **Ingest EML** - Saves attached emails (item attachments) as EML files in vault (requires Extract Attachments enabled)
+
+## ES Polling Setup Diagnostics
+
+With Splunk SOAR SDK 7.3.0 or newer, setup failures report
+`reason=authentication` for rejected credentials or authorization, and
+`reason=mailbox` for a missing or inaccessible mailbox/folder. The run remains
+failed even if no findings were produced. Server response bodies, credentials,
+and mailbox names are omitted. Network failures are not labeled as bad credentials.

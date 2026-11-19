@@ -588,6 +588,14 @@ This section explains each configuration field in user-friendly terms.
 
 #### **Ingest EML** - Saves attached emails (item attachments) as EML files in vault (requires Extract Attachments enabled)
 
+## ES Polling Setup Diagnostics
+
+With Splunk SOAR SDK 7.3.0 or newer, setup failures report
+`reason=authentication` for rejected credentials or authorization, and
+`reason=mailbox` for a missing or inaccessible mailbox/folder. The run remains
+failed even if no findings were produced. Server response bodies, credentials,
+and mailbox names are omitted. Network failures are not labeled as bad credentials.
+
 ### Configuration variables
 
 This table lists the configuration variables required to operate Microsoft 365. These variables are specified when configuring a Microsoft 365 (MS Graph) asset in Splunk SOAR.
