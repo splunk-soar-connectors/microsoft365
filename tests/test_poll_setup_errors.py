@@ -4,9 +4,10 @@
 from types import SimpleNamespace
 
 import pytest
-from soar_sdk.exceptions import ActionFailure
+from soar_sdk.exceptions import ActionFailure, PollingError
+from soar_sdk.polling import diagnose_es_poll
 
-from src.poll_errors import MailPollError, _setup_reason, diagnose_es_poll
+from src.poll_errors import _setup_reason
 
 
 PRIVATE = "private-password private-mailbox https://host/?token=private-token"
@@ -74,13 +75,13 @@ def test_oauth_uses_only_fixed_protocol_codes(code):
 
 
 def test_wrapped_failure_retains_no_upstream_message():
-    @diagnose_es_poll
+    @diagnose_es_poll(_setup_reason)
     def poll():
         error = Exception(f"API Error 401: {PRIVATE}")
         raise error
         yield
 
-    with pytest.raises(MailPollError) as caught:
+    with pytest.raises(PollingError) as caught:
         list(poll())
     assert caught.value.polling_error_code == "authentication"
     assert caught.value.status_code == 401
@@ -91,7 +92,7 @@ def test_wrapped_failure_retains_no_upstream_message():
 def test_unknown_network_failure_is_not_mislabeled():
     error = ConnectionError(PRIVATE)
 
-    @diagnose_es_poll
+    @diagnose_es_poll(_setup_reason)
     def poll():
         raise error
         yield
@@ -111,10 +112,10 @@ def test_causes_are_bounded_and_explicit_codes_pass_through():
     cause.args = (PRIVATE,)
     assert _setup_reason(error) is None
 
-    @diagnose_es_poll
+    @diagnose_es_poll(_setup_reason)
     def poll():
-        raise MailPollError("mailbox")
+        raise PollingError("mailbox")
         yield
 
-    with pytest.raises(MailPollError, match="Mailbox or folder"):
+    with pytest.raises(PollingError, match="Mailbox or folder"):
         list(poll())
