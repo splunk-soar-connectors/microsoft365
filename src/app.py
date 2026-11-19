@@ -63,6 +63,7 @@ from .consts import (
     MSGOFFICE365_SELECT_PARAMETER_LIST,
 )
 from .helper import GraphPaginationState, MsGraphHelper, encode_path_segment
+from .poll_errors import MailPollError, diagnose_es_poll
 
 
 logger = getLogger()
@@ -1346,24 +1347,32 @@ def _build_es_finding(helper: MsGraphHelper, asset: Asset, email_data: dict) -> 
 
 
 @app.on_es_poll()
+@diagnose_es_poll
 def on_es_poll(
     params: OnESPollParams, soar: SOARClient, asset: Asset
 ) -> Generator[Finding, int | None]:
     """Poll for new emails and create ES findings for each email."""
     helper = MsGraphHelper(soar, asset)
-    helper.get_token()
+    try:
+        helper.get_token()
+    except Exception as error:
+        status = getattr(getattr(error, "response", None), "status_code", None)
+        if type(status) is int and status in (400, 401, 403):
+            raise MailPollError("authentication", status) from None
+        raise
 
     state = asset.ingest_state
     email_address = asset.email_address
     if not email_address:
-        raise ValueError("Email address is required for ES polling")
+        raise MailPollError("mailbox")
 
     folder = asset.folder or MSGOFFICE365_DEFAULT_FOLDER
     folder_id = folder
     if asset.get_folder_id:
         resolved_id = helper.get_folder_id(folder, email_address)
-        if resolved_id:
-            folder_id = resolved_id
+        if not resolved_id:
+            raise MailPollError("mailbox")
+        folder_id = resolved_id
 
     max_emails = asset.max_containers
     last_time = state.get("es_last_time")

@@ -287,3 +287,51 @@ def test_all_pending_fetch_failures_are_persisted_without_blocking_new_mail(runt
     }
     assert module.on_es_poll(OnESPollParams())
     assert context.sent == ["mail-7"]
+
+
+@pytest.mark.parametrize(
+    "status, reason",
+    [(401, "authentication"), (403, "authentication"), (404, "mailbox")],
+)
+def test_initial_setup_failure_reports_safe_reason(runtime, status, reason):
+    error = RuntimeError("private-password private-mailbox private-response")
+    error.status_code = status
+    module.MsGraphHelper.return_value.get_token.side_effect = error
+    assert not module.on_es_poll(OnESPollParams())
+    output = module.app.actions_manager.add_result.call_args.args[0]
+    summary = output.get_summary()
+    assert summary["polling_failed"] is True
+    assert summary["created"] == summary["failed"] == 0
+    assert "private-password" not in repr(vars(output))
+    assert summary["polling_errors"][0]["reason"] == reason
+    assert f"reason={reason}" in output.get_message()
+
+
+def test_missing_configured_folder_is_a_safe_mailbox_failure(runtime):
+    runtime.asset.get_folder_id = True
+    runtime.asset.folder = "private-missing-folder"
+    module.MsGraphHelper.return_value.get_folder_id.return_value = None
+    assert not module.on_es_poll(OnESPollParams())
+    output = module.app.actions_manager.add_result.call_args.args[0]
+    summary = output.get_summary()
+    assert summary["polling_failed"] is True
+    assert summary["created"] == summary["failed"] == 0
+    assert not runtime.sent
+    assert "private-missing" not in repr(vars(output))
+    assert summary["polling_errors"][0]["reason"] == "mailbox"
+
+
+def test_rejected_token_request_is_safe_authentication_failure(runtime):
+    import requests
+
+    response = requests.Response()
+    response.status_code = 400
+    module.MsGraphHelper.return_value.get_token.side_effect = requests.HTTPError(
+        "private-client-secret", response=response
+    )
+    assert not module.on_es_poll(OnESPollParams())
+    output = module.app.actions_manager.add_result.call_args.args[0]
+    assert "private-client-secret" not in repr(vars(output))
+    details = output.get_summary()["polling_errors"][0]
+    assert details["reason"] == "authentication"
+    assert details["status_code"] == 400
