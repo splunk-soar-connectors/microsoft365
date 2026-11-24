@@ -9,7 +9,7 @@ dependencies = [
     "beautifulsoup4>=4.13.0,<4.14.0",
     "msal>=1.35.1",
     "requests>=2.33.1",
-    "splunk-soar-sdk[email]>=7.3.0",
+    "splunk-soar-sdk[email]>=7.3.1",
 ]
 
 [tool.soar.app]
