@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from types import SimpleNamespace
 
-import httpx
+import httpx2
 import pytest
 from soar_sdk.asset_state import AssetState
 from soar_sdk.params import OnESPollParams
@@ -72,15 +72,15 @@ def runtime(monkeypatch, mocker):
             ).isoformat(),
         }
 
-    def create(client, url, *, content, headers):
-        payload = json.loads(content)
+    def create(_client, request):
+        payload = json.loads(request.content)
         identifier = re.search(r"mail-\d+$", payload["rule_title"]).group()
         context.sent.append(identifier)
         if identifier == context.failed:
-            return httpx.Response(429)
-        return httpx.Response(201, json={"_time": "now", "finding_id": identifier})
+            return httpx2.Response(429)
+        return httpx2.Response(201, json={"_time": "now", "finding_id": identifier})
 
-    mocker.patch.object(httpx.Client, "post", autospec=True, side_effect=create)
+    mocker.patch.object(httpx2.Client, "send", autospec=True, side_effect=create)
     mock_mailbox(context, mocker)
     return context
 
@@ -92,7 +92,11 @@ def test_failed_email_is_skipped_without_replaying_processed_mail(runtime, manne
     expected = expected_order(context)
     context.failed = expected[2]
     assert module.on_es_poll(OnESPollParams())
-    assert context.sent == expected[:4] + [expected[2]] * 2 + expected[4:]
+    # The SDK processes each batch concurrently, then retries failed items.
+    assert sorted(context.sent[:2]) == sorted(expected[:2])
+    assert sorted(context.sent[2:4]) == sorted(expected[2:4])
+    assert context.sent[4:6] == [expected[2]] * 2
+    assert sorted(context.sent[6:]) == sorted(expected[4:])
     result = module.app.actions_manager.add_result.call_args.args[0]
     assert result.get_summary()["failed"] == 1
     assert not context.asset.ingest_state.in_transaction
@@ -205,11 +209,11 @@ def test_page_request_failure_preserves_previous_batch(runtime):
     context.fail_page = True
     expected = expected_order(context)
     assert not module.on_es_poll(OnESPollParams())
-    assert context.sent == expected[:2]
+    assert sorted(context.sent) == sorted(expected[:2])
     context.fail_page = False
     context.sent.clear()
     assert module.on_es_poll(OnESPollParams())
-    assert context.sent == expected[2:]
+    assert sorted(context.sent) == sorted(expected[2:])
 
 
 @pytest.mark.parametrize("manner", ["oldest first", "latest first"])
@@ -246,7 +250,7 @@ def test_individual_message_failure_advances_persisted_checkpoint(
         identifier for identifier in expected_order(context) if identifier != bad_id
     ]
     assert module.on_es_poll(OnESPollParams())
-    assert context.sent == expected
+    assert sorted(context.sent) == sorted(expected)
     logs = capsys.readouterr().out
     assert "Skipping" in logs
     assert private_error not in logs

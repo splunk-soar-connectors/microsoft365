@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 from urllib.parse import parse_qs, urlparse
 
-import httpx
+import httpx2
 import pytest
 from soar_sdk.asset_state import AssetState
 from soar_sdk.auth import AuthorizationCodeFlow, OAuthClientError, OAuthToken
@@ -78,10 +78,10 @@ def connectivity(mocker, asset):
         return_value={"directory": "microsoft365"},
     )
     responses = {
-        "rest/system_info": httpx.Response(
+        "rest/system_info": httpx2.Response(
             200, json={"base_url": "https://soar.example.com"}
         ),
-        "rest/feature_flag/webhooks": httpx.Response(
+        "rest/feature_flag/webhooks": httpx2.Response(
             200, json={"config": {"webhooks_port": 3500}}
         ),
     }
@@ -95,15 +95,15 @@ def connectivity(mocker, asset):
     authorization_url = mocker.spy(AuthorizationCodeFlow, "get_authorization_url")
     wait = mocker.spy(AuthorizationCodeFlow, "wait_for_authorization")
     mocker.patch(
-        "httpx.Client.request", side_effect=AssertionError("Unexpected HTTP call")
+        "httpx2.Client.request", side_effect=AssertionError("Unexpected HTTP call")
     )
     mocker.patch(
         "requests.sessions.Session.request",
         side_effect=AssertionError("Unexpected HTTP call"),
     )
     exchange = mocker.patch(
-        "httpx.Client.post",
-        return_value=httpx.Response(
+        "httpx2.Client.post",
+        return_value=httpx2.Response(
             200,
             json={
                 "access_token": "delegated-token",
@@ -111,7 +111,7 @@ def connectivity(mocker, asset):
                 "expires_in": 3600,
                 "token_type": "Bearer",
             },
-            request=httpx.Request("POST", TOKEN_ENDPOINT),
+            request=httpx2.Request("POST", TOKEN_ENDPOINT),
         ),
     )
     helper_token_request = mocker.patch(
@@ -174,11 +174,11 @@ def test_authorization_callback_without_action_config(mocker, asset):
 
     mocker.patch("soar_sdk.auth.flows.time.sleep")
     exchange = mocker.patch(
-        "httpx.Client.post",
-        return_value=httpx.Response(
+        "httpx2.Client.post",
+        return_value=httpx2.Response(
             200,
             json={"access_token": "access-token", "expires_in": 3600},
-            request=httpx.Request("POST", TOKEN_ENDPOINT),
+            request=httpx2.Request("POST", TOKEN_ENDPOINT),
         ),
     )
 
@@ -282,13 +282,13 @@ def test_delegated_connectivity_reuses_and_refreshes_authorized_token(
 def test_invalid_client_secret_stops_before_helper_token_or_graph_request(
     asset, connectivity
 ):
-    connectivity.exchange.return_value = httpx.Response(
+    connectivity.exchange.return_value = httpx2.Response(
         400,
         json={
             "error": "invalid_client",
             "error_description": "AADSTS7000215: Invalid client secret provided.",
         },
-        request=httpx.Request("POST", TOKEN_ENDPOINT),
+        request=httpx2.Request("POST", TOKEN_ENDPOINT),
     )
 
     with pytest.raises(OAuthClientError, match="AADSTS7000215"):
