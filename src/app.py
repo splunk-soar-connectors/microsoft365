@@ -83,7 +83,7 @@ class _EmailParserLogFilter(Filter):
             )
         )
         http_event = (
-            record.name == "httpx"
+            record.name == "httpx2"
             and isinstance(record.msg, str)
             and record.msg.startswith("HTTP Request:")
         )
@@ -113,7 +113,7 @@ class _EmailParserLogFilter(Filter):
 
 
 logger.addFilter(_EmailParserLogFilter())
-get_standard_logger("httpx").addFilter(_EmailParserLogFilter())
+get_standard_logger("httpx2").addFilter(_EmailParserLogFilter())
 
 
 def _email_failure_reason(error: Exception) -> str:
