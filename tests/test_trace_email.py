@@ -10,7 +10,6 @@ from soar_sdk.exceptions import ActionFailure
 
 from src.actions.trace_email import (
     MSGOFFICE365_MESSAGE_TRACE_ENDPOINT,
-    MessageTraceOutput,
     TraceEmailParams,
     _build_filter,
     _eq_clause,
@@ -354,24 +353,3 @@ def test_trace_email_maps_output_fields(mocker):
     assert row.fromIP == "8.8.8.8"
     assert row.toIP == "9.9.9.9"
     assert row.status == "delivered"
-
-
-def test_render_trace_email_builds_table_rows():
-    from src.actions.trace_email import render_trace_email
-
-    row = MessageTraceOutput(
-        senderAddress="a@x.com", recipientAddress="b@x.com", messageId="<m1>"
-    )
-    context = render_trace_email.__wrapped__([row])
-    result = context["results"][0]
-    assert result["data"] is True
-    assert result["emails"][0]["sender_address"] == "a@x.com"
-    assert result["emails"][0]["message_id"] == "<m1>"
-
-
-def test_render_trace_email_empty():
-    from src.actions.trace_email import render_trace_email
-
-    assert render_trace_email.__wrapped__([]) == {
-        "results": [{"data": False, "emails": []}]
-    }

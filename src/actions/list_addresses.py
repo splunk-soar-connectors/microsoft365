@@ -37,13 +37,14 @@ class ListAddressesParams(Params):
 
 
 class DistributionListMember(ActionOutput):
-    id: str | None = None
-    displayName: str | None = None
-    mail: str | None = OutputField(cef_types=["email"])
+    mail: str | None = OutputField(cef_types=["email"], column_name="Email")
+    displayName: str | None = OutputField(column_name="Display Name")
+    mailboxType: str | None = OutputField(column_name="Mailbox Type")
     userPrincipalName: str | None = OutputField(
-        cef_types=["msgoffice365 user principal name"]
+        cef_types=["msgoffice365 user principal name"],
+        column_name="User Principal Name",
     )
-    mailboxType: str | None = None
+    id: str | None = OutputField(column_name="ID")
 
 
 class ListAddressesSummary(ActionOutput):
@@ -115,21 +116,6 @@ def _resolve_group_id(helper: MsGraphHelper, group: str) -> str:
     )
 
 
-@app.view_handler(template="office365_list_addresses.html")
-def render_list_addresses(output: list[DistributionListMember]) -> dict:
-    members = [
-        {
-            "mail": member.mail,
-            "display_name": member.displayName,
-            "mailbox_type": member.mailboxType,
-            "user_principal_name": member.userPrincipalName,
-            "id": member.id,
-        }
-        for member in output
-    ]
-    return {"results": [{"data": bool(members), "members": members}]}
-
-
 @app.action(
     description=(
         "Expand a mail-enabled group (distribution list, mail-enabled security group, "
@@ -140,7 +126,7 @@ def render_list_addresses(output: list[DistributionListMember]) -> dict:
     action_type="investigate",
     read_only=True,
     summary_type=ListAddressesSummary,
-    view_handler=render_list_addresses,
+    render_as="table",
 )
 def list_addresses(
     params: ListAddressesParams, soar: SOARClient, asset: Asset

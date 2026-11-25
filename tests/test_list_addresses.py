@@ -260,24 +260,3 @@ def test_list_addresses_ambiguous_resolves_by_exact_alias(mocker):
     assert (
         helper.make_rest_call_helper.call_args_list[1].args[0] == "/groups/GID2/members"
     )
-
-
-def test_render_list_addresses_builds_table_rows():
-    from src.actions.list_addresses import DistributionListMember, render_list_addresses
-
-    member = DistributionListMember(
-        mail="u1@x.com", displayName="User One", mailboxType="Mailbox"
-    )
-    context = render_list_addresses.__wrapped__([member])
-    result = context["results"][0]
-    assert result["data"] is True
-    assert result["members"][0]["mail"] == "u1@x.com"
-    assert result["members"][0]["mailbox_type"] == "Mailbox"
-
-
-def test_render_list_addresses_empty():
-    from src.actions.list_addresses import render_list_addresses
-
-    assert render_list_addresses.__wrapped__([]) == {
-        "results": [{"data": False, "members": []}]
-    }

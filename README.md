@@ -1062,11 +1062,11 @@ action_result.status | string | | success failure |
 action_result.message | string | | |
 action_result.parameter.group | string | `email` `exchange distribution list` | |
 action_result.parameter.recursive | boolean | | |
-action_result.data.\*.id | string | | |
-action_result.data.\*.displayName | string | | |
 action_result.data.\*.mail | string | `email` | |
-action_result.data.\*.userPrincipalName | string | `msgoffice365 user principal name` | |
+action_result.data.\*.displayName | string | | |
 action_result.data.\*.mailboxType | string | | |
+action_result.data.\*.userPrincipalName | string | `msgoffice365 user principal name` | |
+action_result.data.\*.id | string | | |
 action_result.summary.total_entries | numeric | | |
 action_result.summary.members_omitted | numeric | | |
 summary.total_objects | numeric | | 1 |
@@ -1409,16 +1409,16 @@ action_result.parameter.to_ip | string | `ip` `ipv6` | |
 action_result.parameter.internet_message_id | string | `internet message id` | |
 action_result.parameter.widget_filter | boolean | | |
 action_result.parameter.range | string | | |
-action_result.data.\*.id | string | `office 365 trace id` | |
 action_result.data.\*.senderAddress | string | `email` | |
 action_result.data.\*.recipientAddress | string | `email` | |
-action_result.data.\*.messageId | string | `internet message id` | |
-action_result.data.\*.receivedDateTime | string | | |
 action_result.data.\*.subject | string | | |
-action_result.data.\*.size | numeric | | |
+action_result.data.\*.status | string | | |
+action_result.data.\*.receivedDateTime | string | | |
 action_result.data.\*.fromIP | string | `ip` `ipv6` | |
 action_result.data.\*.toIP | string | `ip` `ipv6` | |
-action_result.data.\*.status | string | | |
+action_result.data.\*.messageId | string | `internet message id` | |
+action_result.data.\*.id | string | `office 365 trace id` | |
+action_result.data.\*.size | numeric | | |
 action_result.summary.emails_found | numeric | | |
 summary.total_objects | numeric | | 1 |
 summary.total_objects_successful | numeric | | 1 |

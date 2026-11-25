@@ -91,16 +91,22 @@ class TraceEmailParams(Params):
 
 
 class MessageTraceOutput(ActionOutput):
-    id: str | None = OutputField(cef_types=["office 365 trace id"])
-    senderAddress: str | None = OutputField(cef_types=["email"])
-    recipientAddress: str | None = OutputField(cef_types=["email"])
-    messageId: str | None = OutputField(cef_types=["internet message id"])
-    receivedDateTime: str | None = None
-    subject: str | None = None
-    size: int | None = None
-    fromIP: str | None = OutputField(cef_types=["ip", "ipv6"])
-    toIP: str | None = OutputField(cef_types=["ip", "ipv6"])
-    status: str | None = None
+    senderAddress: str | None = OutputField(cef_types=["email"], column_name="Sender")
+    recipientAddress: str | None = OutputField(
+        cef_types=["email"], column_name="Recipient"
+    )
+    subject: str | None = OutputField(column_name="Subject")
+    status: str | None = OutputField(column_name="Status")
+    receivedDateTime: str | None = OutputField(column_name="Received")
+    fromIP: str | None = OutputField(cef_types=["ip", "ipv6"], column_name="From IP")
+    toIP: str | None = OutputField(cef_types=["ip", "ipv6"], column_name="To IP")
+    messageId: str | None = OutputField(
+        cef_types=["internet message id"], column_name="Message ID"
+    )
+    id: str | None = OutputField(
+        cef_types=["office 365 trace id"], column_name="Trace ID"
+    )
+    size: int | None = OutputField(column_name="Size")
 
 
 class TraceEmailSummary(ActionOutput):
@@ -234,26 +240,6 @@ def _build_filter(params: TraceEmailParams) -> str:
     return " and ".join(clauses)
 
 
-@app.view_handler(template="office365_trace_email.html")
-def render_trace_email(output: list[MessageTraceOutput]) -> dict:
-    emails = [
-        {
-            "sender_address": row.senderAddress,
-            "recipient_address": row.recipientAddress,
-            "subject": row.subject,
-            "status": row.status,
-            "received_date_time": row.receivedDateTime,
-            "from_ip": row.fromIP,
-            "to_ip": row.toIP,
-            "message_id": row.messageId,
-            "id": row.id,
-            "size": row.size,
-        }
-        for row in output
-    ]
-    return {"results": [{"data": bool(emails), "emails": emails}]}
-
-
 @app.action(
     description=(
         "Get the message trace for emails (Exchange Online) via the Microsoft Graph "
@@ -266,7 +252,7 @@ def render_trace_email(output: list[MessageTraceOutput]) -> dict:
     action_type="investigate",
     read_only=True,
     summary_type=TraceEmailSummary,
-    view_handler=render_trace_email,
+    render_as="table",
 )
 def trace_email(
     params: TraceEmailParams, soar: SOARClient, asset: Asset
