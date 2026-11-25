@@ -610,7 +610,7 @@ wheels = [
 
 [[package]]
 name = "microsoft365"
-version = "1.4.9"
+version = "1.4.10"
 source = { virtual = "." }
 dependencies = [
     { name = "beautifulsoup4" },
